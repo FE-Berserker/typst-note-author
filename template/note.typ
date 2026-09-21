@@ -255,11 +255,25 @@
     left: 0pt,
     right: 0pt,
   ))
-  // 底线：包一层随表格宽度收缩的块，用块的底线补齐。
-  // 不要写成 width: 100%——那会让窄表格的底线比表格本身长出一截。
-  show table: it => block(above: 0.2em, below: 0.2em, stroke: (
-    bottom: 0.9pt + note-colors.ink,
-  ), it)
+  // 底线：往表格末尾追加一条 hline（表格内部元素，随表宽收缩）。
+  // 不要包 block 补底线——block 会破坏跨页时的表头重复（实测续页直接从
+  // 数据行继续）；也不要用 block(width: 100%) 的底线——窄表的底线会比表长。
+  show table: it => {
+    // 守卫：末尾已挂着底线的表原样放行——show 规则对重建的同类型元素
+    // 会再次触发，没有这一条就是无限递归（maximum show rule depth exceeded）
+    let kids = it.children
+    if kids.len() > 0 and kids.last().func() == table.hline { return it }
+    table(
+      columns: it.columns,
+      rows: it.rows,
+      align: it.align,
+      inset: it.inset,
+      stroke: it.stroke,
+      fill: it.fill,
+      ..kids,
+      table.hline(position: top, stroke: 0.9pt + note-colors.ink),
+    )
+  }
 
   // ---- 题注 ----
   // 中文题注惯例是「图 1　标题」，用全角空格，不是西文的连接号。
