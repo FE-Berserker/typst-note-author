@@ -160,6 +160,15 @@ marginalia 只避让**它自己**的 `wideblock`（内部写进 `_note_extends_r
 
 ## 表格
 
+**表格题注跑到了表格下方**
+
+表题在上是中文技术文档惯例。Typst 0.12 起表格的 `position: auto` 默认就是
+top，但更老的编译器对所有题注一律 bottom——在低于 0.12 的 Typst 上编译会
+看到表题掉到表格底下。模板已显式设置
+`show figure.where(kind: table): set figure.caption(position: top)`，
+不依赖版本默认；若仍见题注在下，先 `typst --version` 确认编译器版本，
+再检查是不是有别的包改了 `figure.caption` 的默认。
+
 **表格是一张满格的网，不是三线表**
 
 三线表靠 `note-setup` 里的 `set table(stroke: …)` 与一条 `show table` 规则

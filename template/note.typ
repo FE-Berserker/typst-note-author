@@ -278,6 +278,10 @@
   // ---- 题注 ----
   // 中文题注惯例是「图 1　标题」，用全角空格，不是西文的连接号。
   show figure: set figure.caption(separator: [　])
+  // 表题在上、图题在下（中文技术文档惯例）。表格的 auto 默认虽已是 top
+  // （Typst 0.12 起），仍显式写死——不依赖版本默认，也不给外部包留改默认的空间；
+  // 图题保持 Typst 默认的 bottom，不走这条规则。
+  show figure.where(kind: table): set figure.caption(position: top)
   // 图注文字比正文小一号，与旁注同级
   show figure.caption: set text(size: 9pt, fill: note-colors.ink.lighten(20%))
 
