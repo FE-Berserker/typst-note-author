@@ -275,6 +275,24 @@
     )
   }
 
+  // ---- 插图：过宽的图自动缩进版心 ----
+  // image 不设 width 时按自然尺寸渲染（1 像素 = 1pt），随手插入的截图动辄
+  // 远超版心宽度，整张图向右铺过旁注栏、把旁注盖住——「插图没给旁注留位置」
+  // 就是它。这里把「不设宽度且自然宽度超出版心」的图改写成 width: 100%
+  // （高度按比例跟随，宽度按所在容器解析：在 #wide 通栏里就缩成通栏宽）。
+  // 显式写了 width 的图一律不动——有意设置哪怕超宽也尊重；想全宽就明写
+  // width: 100%，想借旁注栏用 #wide。
+  show image: it => layout(sz => context {
+    if it.width != auto { return it }
+    let w = measure(it).width
+    if w <= sz.width { return it }
+    // 等比缩到刚好放进当前位置的可用宽度（正文栏或 #wide 通栏）。
+    // 用 scale 而不是重建 image：it.source 里的相对路径按「写它的那个文件」
+    // 解析，换一个文件重建就会解析到错误位置（实测报 escape the project root）。
+    let f = (sz.width / w) * 100%
+    scale(it, x: f, y: f)
+  })
+
   // ---- 题注 ----
   // 中文题注惯例是「图 1　标题」，用全角空格，不是西文的连接号。
   show figure: set figure.caption(separator: [　])
