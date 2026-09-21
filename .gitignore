@@ -1,2 +1,6 @@
 # 编译产物
 *.pdf
+# notes_db.py 的生成物（入库数据与思维导图）
+notes.db
+mindmap.html
+mindmap.md

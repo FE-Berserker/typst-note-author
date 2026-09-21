@@ -1,6 +1,6 @@
 ---
 name: typst-note-author
-description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/来源）、右侧旁注栏、提示框与编号环境、三线表、图表公式，单篇导出与汇总成册两个出口共用一份内容。当用户要做笔记、记学习笔记、整理笔记、把 Markdown 笔记排成 PDF，或提到 Typst 笔记、笔记模板、旁注、marginalia、笔记成册时使用——即使用户只说「帮我把这些笔记排一下」也应触发。
+description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/来源）、右侧旁注栏、提示框与编号环境、三线表、图表公式，单篇导出与汇总成册两个出口共用一份内容；关键词与笔记结构可一键存入 SQLite 并生成 markmap 交互式思维导图。当用户要做笔记、记学习笔记、整理笔记、把 Markdown 笔记排成 PDF，或提到 Typst 笔记、笔记模板、旁注、marginalia、笔记成册，或想看思维导图、关键词图谱、笔记知识结构时使用——即使用户只说「帮我把这些笔记排一下」「看看我的知识图谱」也应触发。
 ---
 
 # Typst 中文笔记（笔记模板）
@@ -9,6 +9,11 @@ description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/
 提示框与编号环境、三线表、图表公式、交叉引用均已配置就绪。每篇笔记有一种自己的
 主题色。同一篇笔记文件既可以单独导出，也可以汇总成册——汇总册的总目录自动生成，
 增删笔记不用手工维护目录。
+
+配套的 `scripts/notes_db.py` 把笔记的关键词与结构存入 SQLite（`sync` 子命令），
+再用 markmap（现成的开源思维导图渲染器）生成**交互式**思维导图 HTML
+（`mindmap` 子命令）：节点点击折叠/展开、滚轮缩放、拖拽平移，
+含「关键词图谱」与「笔记库」两个视图。
 
 与书籍样板（`typst-book-author`）的关系：配色、提示框、图形样式、中文字体规则
 从那边原样继承，骨架则换掉了——笔记不装订、不分篇、不做切口色标，
@@ -110,6 +115,30 @@ New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非
 （`20260920-ANSYS-拓扑优化.typ`）：目录顺序由 include 的先后决定、与文件名
 无关，前缀能让文件管理器里的排序和册内顺序对上。
 
+### 5. 关键词库与思维导图
+
+用户想看思维导图、关键词图谱或笔记知识结构时，用技能目录里的
+`scripts/notes_db.py`（纯标准库，Python 3.8+）对**用户笔记项目**执行：
+
+```bash
+# 1) 入库：扫描 notes/*.typ 的 note-header（标题/日期/标签/状态/来源/摘要）
+#    与节标题（== / ===），全量重建 <项目>/notes.db
+python <技能目录>/scripts/notes_db.py --root <用户项目> sync
+
+# 2) 导图：从 notes.db 生成 mindmap.html 并在浏览器打开
+python <技能目录>/scripts/notes_db.py --root <用户项目> mindmap --open
+```
+
+- `mindmap.html` 由 markmap 渲染（CDN 加载脚本，打开时需联网），两个视图：
+  **关键词图谱**（关键词 → 笔记，高频关键词排在前）与**笔记库**
+  （笔记 → 章节 → 标签）；节点可点击折叠/展开、滚轮缩放、拖拽平移。
+  同时落一份 `mindmap.md` 大纲备份，可直接改了再喂给任何 markdown 工具。
+- SQLite 是四张表：`notes` / `sections` / `keywords` / `note_keywords`，
+  想自己写查询（比如「哪些笔记还是待复习」）直接用 sqlite3 读 `notes.db`。
+- sync 是全量重建：改了笔记、增删了标签之后重新跑一次 sync 再 mindmap；
+  生成物（notes.db / mindmap.html / mindmap.md）在用户项目里，已被
+  .gitignore 覆盖，不会误提交。
+
 ## 模板文件一览
 
 | 文件 | 职责 |
@@ -121,6 +150,12 @@ New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非
 | `single.typ` | 单篇出口：一篇笔记一个 PDF |
 | `collection.typ` | 汇总出口：首页标题 + 自动总目录，之后每篇各起一页 |
 | `notes/` | 笔记正文；随附的两篇既是示例也是用法文档 |
+
+技能目录里还有一个不随模板复制的脚本：
+
+| 文件 | 职责 |
+| --- | --- |
+| `scripts/notes_db.py` | 笔记关键词/结构入库 SQLite（`sync`）＋ 生成 markmap 交互思维导图（`mindmap`），对用户项目目录执行 |
 
 ## 四条必须记住的约定
 
