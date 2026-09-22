@@ -3,8 +3,9 @@
 一个 Agent Skills 技能：用 Typst 排中文学习笔记。笔记头（日期/标签/状态/来源）、
 右侧旁注栏、提示框与编号环境、三线表、图表公式与交叉引用开箱即用，
 **单篇导出与汇总成册两个出口共用同一份内容**；配套脚本可把关键词与笔记结构
-存入 SQLite，并用 [markmap](https://github.com/markmap/markmap) 一键生成
-交互式思维导图（节点折叠/展开、缩放、拖拽）。
+存入 SQLite，一键生成交互式**知识图谱**（[vis-network](https://github.com/visjs/vis-network)
+力导向图：关键词为节点、共现为边，可拖动/缩放/点击高亮/搜索），
+另有树状思维导图（[markmap](https://github.com/markmap/markmap)）作为层级视角补充。
 
 风格与 `typst-book-author` 同源：配色、提示框、图形样式、中文字体规则都从那边
 继承；骨架则换成了笔记的——不装订、不分篇、不做切口色标，右侧的宽边不是留给
@@ -31,7 +32,8 @@ typst-note-author/
 │   ├── design.md          版式架构与设计意图（改模块前读）
 │   ├── customization.md   常见定制任务（换色/调栏宽/换开本/扩框型…）
 │   └── pitfalls.md        踩坑记录（旁注错位/缩进丢失/表格线异常…）
-├── scripts/               notes_db.py：关键词/结构入库 SQLite + 生成思维导图
+├── scripts/               notes_db.py（关键词/结构入库 SQLite + 生成知识图谱/思维导图）、
+│                          check_sync.py（与 typst-book-author 的色值/图形样式同步校验）
 └── template/              完整可编译的笔记样板
     ├── note.typ           核心：版式参数、字体、行内样式、笔记头、旁注
     ├── colors.typ         全部配色唯一来源
@@ -39,6 +41,7 @@ typst-note-author/
     ├── figstyle.typ       CeTZ / Fletcher / Lilaq 统一图形样式
     ├── single.typ         单篇出口
     ├── collection.typ     汇总出口
+    ├── .gitignore         编译产物与 notes_db 生成物（随模板复制）
     └── notes/             笔记正文（随附两篇既是示例也是用法文档）
 ```
 
@@ -66,14 +69,15 @@ typst compile single.typ 笔记.pdf
 # 汇总成册：在 collection.typ 里按顺序 include 各篇笔记
 typst compile collection.typ 我的笔记.pdf
 
-# 关键词入库 SQLite，并生成交互式思维导图（markmap 渲染，浏览器打开）
+# 关键词入库 SQLite，生成交互式知识图谱（vis-network；mindmap 子命令可出树状思维导图）
 python scripts/notes_db.py --root mynotes sync
-python scripts/notes_db.py --root mynotes mindmap --open
+python scripts/notes_db.py --root mynotes graph --open
 ```
 
 写一篇新笔记：在 `notes/` 下新建文件，先写 `#note-header(…)`，正文从 `==` 起。
 
-要求 Typst 0.13+（实测 0.15.1），首次编译需联网拉取 `@preview` 依赖。
+要求 Typst 0.13+（用到的最新语法是 0.13 引入的 `first-line-indent` 配置；
+实测 0.15.1），首次编译需联网拉取 `@preview` 依赖。
 字体依赖：思源宋体（Noto Serif SC）、SimHei、KaiTi、New Computer Modern、
 DejaVu Sans Mono。
 

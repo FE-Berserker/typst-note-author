@@ -8,8 +8,9 @@
 //
 // SYNC: 下方 note-colors-base 的色值与 typst-book-author/template/colors.typ
 // 的 book-colors（那边仍叫这个名）相同，改色值要同步改那边，否则两套模板的
-// 配色会悄悄漂移。文件末尾的灰阶开关（note-monochrome / note-grayscale）是
-// 笔记模板独有的，不用往那边搬——书籍样板不出复习稿。
+// 配色会悄悄漂移；scripts/check_sync.py 可机检。文件末尾的灰阶开关
+// （note-monochrome / note-grayscale）是笔记模板独有的，不用往那边搬
+// ——书籍样板不出复习稿。
 //
 // 配色原则（沿用书籍样板的做法）：框身一律用同一种极浅中性底，
 // 颜色只出现在标题牌、状态点与细边上——一页上彩色元素一多，正文就被压住了。

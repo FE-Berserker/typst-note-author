@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
-"""typst-note-author 的关键词库与思维导图工具。
+"""typst-note-author 的关键词库、知识图谱与思维导图工具。
 
-把笔记项目的关键词与结构存进 SQLite，并用 markmap（官方发行版，CDN 加载）
-生成**交互式**思维导图 HTML：节点可点击折叠/展开、滚轮缩放、拖拽平移。
+把笔记项目的关键词与结构存进 SQLite，再生成可交互的浏览器视图。
 
-两个子命令（--root 指向笔记项目目录，默认当前目录）：
+子命令（--root 指向笔记项目目录，默认当前目录）：
   sync      扫描 notes/*.typ 的 note-header（标题/日期/标签/状态/来源/摘要）
             与节标题（== / ===），全量重建 notes.db
-  mindmap   从 notes.db 生成 mindmap.md（大纲）与 mindmap.html（交互导图，
-            含「关键词图谱」与「笔记库」两个视图）
+  graph     从 notes.db 生成 graph.html——交互式知识图谱（vis-network 力导向图）：
+            关键词为节点、同一篇笔记出现过的关键词互相关联（共现边），
+            节点大小 = 关联笔记数；可拖动重排、缩放、点击高亮、搜索定位，
+            「显示笔记节点」开关把每篇笔记也放进图里（推荐先看这个）
+  mindmap   从 notes.db 生成 mindmap.html / mindmap.md——树状思维导图
+            （markmap），层级视图的补充
 
 用法：
   python notes_db.py --root <笔记项目目录> sync
-  python notes_db.py --root <笔记项目目录> mindmap
-  python notes_db.py --root <笔记项目目录> mindmap --open   # 生成后直接打开浏览器
+  python notes_db.py --root <笔记项目目录> graph --open    # 知识图谱
+  python notes_db.py --root <笔记项目目录> mindmap --open  # 思维导图（可选）
 
-依赖：Python 3.8+（仅标准库）。查看 HTML 需联网加载 markmap 的 CDN 脚本，
-导图数据本身已内嵌在 HTML 里，加载一次后缩放浏览不再请求网络。
+依赖：Python 3.8+（仅标准库）。查看 HTML 需联网加载 CDN 渲染库
+（vis-network / markmap），图数据本身已内嵌在 HTML 里。
 """
 
 import argparse
+import json
 import re
 import sqlite3
 import sys
@@ -32,6 +36,7 @@ if hasattr(sys.stdout, "reconfigure"):
 DB_NAME = "notes.db"
 MD_NAME = "mindmap.md"
 HTML_NAME = "mindmap.html"
+GRAPH_NAME = "graph.html"
 
 # ============================================================
 # 解析 .typ 笔记
@@ -332,11 +337,189 @@ def cmd_mindmap(root, open_browser):
         webbrowser.open(html_path.resolve().as_uri())
 
 
+# ============================================================
+# 知识图谱（数据自 SQLite，渲染交给 vis-network）
+# ============================================================
+
+# 关键词节点配色：与模板 colors.typ 的 note-themes 同一套，图与笔记同源
+KW_PALETTE = ["#c1002a", "#1d4ed8", "#15803d", "#86198f", "#a35c00", "#0f766e"]
+
+
+def build_graph_data(con):
+    """关键词为节点、共现为边的图数据。共现 = 两个关键词出现在同一篇笔记，
+    边越粗说明这对关键词一起出现的次数越多——这是知识图谱里真正的「关系」。"""
+    notes = con.execute("SELECT id, file, title, date, status FROM notes ORDER BY file").fetchall()
+    note_kws = {}
+    for note_id, name in con.execute(
+        "SELECT note_id, k.name FROM note_keywords nk JOIN keywords k ON k.id = nk.keyword_id"
+    ):
+        note_kws.setdefault(note_id, []).append(name)
+
+    kw_count = {}
+    for kws in note_kws.values():
+        for k in set(kws):
+            kw_count[k] = kw_count.get(k, 0) + 1
+
+    nodes = []
+    for i, name in enumerate(sorted(kw_count)):
+        col = KW_PALETTE[i % len(KW_PALETTE)]
+        tip = [f"{name} · 关联笔记 {kw_count[name]}"]
+        for nid, _f, title, date, _s in notes:
+            if name in note_kws.get(nid, []):
+                tip.append(f"· {title}" + (f"（{date}）" if date else ""))
+        nodes.append({
+            "id": f"kw:{name}", "label": sanitize(name), "group": "kw",
+            "value": kw_count[name], "color": col, "baseColor": col,
+            "title": "<br>".join(tip),
+        })
+    # 笔记节点默认隐藏：先看关键词之间的关系，需要时再勾选把笔记放进来
+    for nid, fname, title, date, status in notes:
+        nodes.append({
+            "id": f"note:{fname}", "label": sanitize(title)[:14], "group": "note",
+            "shape": "box", "color": "#8f9aa8", "hidden": True,
+            "title": f"{sanitize(title)}（{date or '无日期'} · {status or '无状态'}）",
+        })
+
+    pair_w = {}
+    for nid, kws in note_kws.items():
+        u = sorted(set(kws))
+        for i in range(len(u)):
+            for j in range(i + 1, len(u)):
+                pair_w[(u[i], u[j])] = pair_w.get((u[i], u[j]), 0) + 1
+    edges = []
+    eid = 0
+    for (a, b), w in sorted(pair_w.items()):
+        eid += 1
+        edges.append({
+            "id": f"e{eid}", "from": f"kw:{a}", "to": f"kw:{b}", "group": "kw",
+            "value": w, "color": {"color": "rgba(120,120,130,0.45)"},
+            "title": f"「{a}」与「{b}」在 {w} 篇笔记中同现",
+        })
+    for nid, fname, title, date, status in notes:
+        for k in sorted(set(note_kws.get(nid, []))):
+            eid += 1
+            edges.append({
+                "id": f"e{eid}", "from": f"note:{fname}", "to": f"kw:{k}",
+                "group": "note", "hidden": True, "dashes": [2, 4],
+                "color": {"color": "rgba(140,140,150,0.35)"},
+                "title": f"《{sanitize(title)}》打了标签 #{sanitize(k)}",
+            })
+
+    stats = f"{len(notes)} 篇笔记 · {len(kw_count)} 个关键词 · {len(pair_w)} 条共现关联"
+    return {"nodes": nodes, "edges": edges, "stats": stats}
+
+
+GRAPH_HTML = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>笔记知识图谱</title>
+<style>
+  body { margin: 0; background: #fafafa; font-family: system-ui, "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 18px; margin: 14px 20px 2px; color: #333; }
+  .hint { font-size: 12px; color: #999; margin: 0 20px 8px; }
+  #bar { padding: 4px 20px 10px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 13px; color: #444; display: flex; align-items: center; gap: 4px; }
+  button { font-size: 13px; padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
+           background: #fff; cursor: pointer; }
+  input[type=text] { font-size: 13px; padding: 4px 8px; border: 1px solid #ccc;
+           border-radius: 4px; width: 170px; }
+  #stats { font-size: 12px; color: #999; }
+  #net { width: 100vw; height: calc(100vh - 118px); background: #fff;
+         border-top: 1px solid #eee; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+<h1>笔记知识图谱</h1>
+<div class="hint">拖动节点重排 · 滚轮缩放 · 点击节点高亮它的关联 · 搜索定位关键词 · 节点大小 = 关联笔记数</div>
+<div id="bar">
+  <input type="text" id="q" placeholder="搜索关键词…">
+  <label><input type="checkbox" id="show-notes">显示笔记节点</label>
+  <label><input type="checkbox" id="physics" checked>物理模拟</label>
+  <button id="fit">适应屏幕</button>
+  <span id="stats"></span>
+</div>
+<div id="net"></div>
+<script>
+const DATA = __DATA__;
+const nodes = new vis.DataSet(DATA.nodes);
+const edges = new vis.DataSet(DATA.edges);
+const net = new vis.Network(
+  document.getElementById('net'),
+  { nodes: nodes, edges: edges },
+  {
+    interaction: { hover: true, tooltipDelay: 150 },
+    physics: { enabled: true, solver: 'barnesHut',
+               barnesHut: { gravitationalConstant: -4200, springLength: 130 } },
+    nodes: { shape: 'dot', borderWidth: 2,
+             scaling: { min: 10, max: 36 },
+             font: { face: 'system-ui, Microsoft YaHei, sans-serif', size: 14 } },
+    edges: { scaling: { min: 1, max: 6 } },
+  }
+);
+document.getElementById('stats').textContent = DATA.stats;
+
+function applyNotes(on) {
+  nodes.update(DATA.nodes.filter(n => n.group === 'note')
+    .map(n => ({ id: n.id, hidden: !on })));
+  edges.update(DATA.edges.filter(e => e.group === 'note')
+    .map(e => ({ id: e.id, hidden: !on })));
+}
+document.getElementById('show-notes').addEventListener('change', e => applyNotes(e.target.checked));
+document.getElementById('physics').addEventListener('change', e =>
+  net.setOptions({ physics: { enabled: e.target.checked } }));
+document.getElementById('fit').addEventListener('click', () => net.fit());
+setTimeout(() => net.fit(), 1200);
+
+const q = document.getElementById('q');
+q.addEventListener('input', () => {
+  const s = q.value.trim().toLowerCase();
+  const upd = DATA.nodes.filter(n => n.group === 'kw').map(n => {
+    const hit = s !== '' && n.label.toLowerCase().includes(s);
+    return { id: n.id, borderWidth: hit ? 4 : 2,
+             color: hit ? '#2b2b2b' : n.baseColor };
+  });
+  nodes.update(upd);
+  if (s === '') { net.unselectAll(); return; }
+  const ids = DATA.nodes.filter(n => n.group === 'kw'
+    && n.label.toLowerCase().includes(s)).map(n => n.id);
+  if (ids.length) net.selectNodes(ids);
+});
+</script>
+</body>
+</html>
+"""
+
+
+def cmd_graph(root, open_browser):
+    db = root / DB_NAME
+    if not db.exists():
+        print(f"[graph] 没找到 {db}，先运行 sync", file=sys.stderr)
+        sys.exit(1)
+    con = sqlite3.connect(db)
+    data = build_graph_data(con)
+    con.close()
+    if not data["nodes"]:
+        print("[graph] 库是空的：先在笔记的 note-header 里写 tags，再 sync", file=sys.stderr)
+        sys.exit(1)
+    # </ 转义防止笔记标题里出现它时截断 <script>
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    out = root / GRAPH_NAME
+    out.write_text(GRAPH_HTML.replace("__DATA__", payload), encoding="utf-8")
+    print(f"[graph] {out}  （{data['stats']}）")
+    if open_browser:
+        webbrowser.open(out.resolve().as_uri())
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=".", help="笔记项目目录（含 notes/ 子目录），默认当前目录")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("sync", help="扫描 notes/*.typ，全量重建 notes.db")
+    p_graph = sub.add_parser("graph", help="从 notes.db 生成 vis-network 交互式知识图谱 HTML")
+    p_graph.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     p_mm = sub.add_parser("mindmap", help="从 notes.db 生成 markmap 交互导图 HTML")
     p_mm.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     args = ap.parse_args()
@@ -346,6 +529,8 @@ def main():
         sys.exit(1)
     if args.cmd == "sync":
         cmd_sync(root)
+    elif args.cmd == "graph":
+        cmd_graph(root, args.open)
     else:
         cmd_mindmap(root, args.open)
 

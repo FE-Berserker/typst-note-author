@@ -21,9 +21,12 @@
 #note-header(
   title: "ANSYS 拓扑优化",
   …
-  theme: note-themes.indigo,   // 可用的名字见 colors.typ 的 note-themes-base
+  theme: note-themes.indigo,   // 键名见 colors.typ 的 note-themes-base
 )
 ```
+
+注意传值用 `note-themes.<键名>`，不要图直观写成 `note-themes-base.<键名>`——
+后者绕过了黑白开关，`note-monochrome = true` 时这篇的颜色不会跟着变灰。
 
 要注意的两件事：
 
