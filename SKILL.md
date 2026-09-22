@@ -30,6 +30,18 @@ description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/
 - `single.typ` — 单篇出口；
 - `collection.typ` — 汇总出口。
 
+**笔记存到哪里（第一次要问，之后自动记住）**：第一次为用户建笔记项目时，
+先问清楚要存到哪个目录，然后登记一次：
+
+```bash
+python <技能目录>/scripts/notes_db.py root <用户选择的路径>
+```
+
+之后所有子命令**不带 `--root` 就默认用这个位置**（存于
+`~/.typst-note-author/state.json`；用户设了 `TYPST_NOTES_HOME` 环境变量
+则环境变量优先）。`notes_db.py root`（不带参数）随时可查当前位置；
+没登记过时它会以退出码 3 提示 NOT_SET——那就再问一次用户。
+
 ### 2. 写笔记
 
 每篇笔记是 `notes/` 下的一个文件，固定是「笔记头 + 正文」两段：
@@ -109,12 +121,26 @@ typst compile collection.typ 我的笔记.pdf   # 汇总成册
 New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非 Windows 系统
 需要思源黑体/思源宋体兜底（字体链已配好）。
 
-### 4. 加笔记 / 编册
+### 4. 加笔记 / 编册（每 20 篇自动出合集）
 
 在 `collection.typ` 末尾按顺序 `#include "notes/….typ"` 即可，
 总目录、页码、书眉自动跟上。笔记文件建议带日期前缀
 （`20260920-ANSYS-拓扑优化.typ`）：目录顺序由 include 的先后决定、与文件名
 无关，前缀能让文件管理器里的排序和册内顺序对上。
+
+**新建一篇笔记后跑一次计数**（写完文件、include 进 collection.typ 之后）：
+
+```bash
+python <技能目录>/scripts/notes_db.py bump
+```
+
+- 计数器存在 `~/.typst-note-author/state.json`，每次 bump +1；
+- 满 **20 篇**时自动创建合集：调 `typst compile collection.typ` 生成
+  `合集-日期.pdf`（在登记的笔记位置），计数归零。编译失败会把原因带出来，
+  处理后手动跑 `collect` 重试；
+- 不想等 20 篇、立即出合集：直接跑 `collect` 子命令；
+- 计数只认 bump 的次数（即「自上次合集以来新建了几篇」），与笔记总数
+  无关——忘了 bump 不会多出合集，只会晚出。
 
 ### 5. 关键词库与知识图谱
 
@@ -160,7 +186,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/notes_db.py` | 笔记关键词/结构入库 SQLite（`sync`）＋ 生成知识图谱（`graph`，vis-network）与思维导图（`mindmap`，markmap），对用户项目目录执行 |
+| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、关键词/结构入库 SQLite（`sync`）、知识图谱（`graph`）、思维导图（`mindmap`）、合集计数与自动编译（`bump` / `collect`） |
 | `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的色值、图形样式同步；改 `colors.typ` / `figstyle.typ` 后跑 |
 
 ## 四条必须记住的约定

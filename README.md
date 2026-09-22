@@ -69,9 +69,17 @@ typst compile single.typ 笔记.pdf
 # 汇总成册：在 collection.typ 里按顺序 include 各篇笔记
 typst compile collection.typ 我的笔记.pdf
 
+# 笔记项目位置：第一次问清存哪里并登记，之后所有命令不带 --root 都默认用它
+# （存在 ~/.typst-note-author/state.json，环境变量 TYPST_NOTES_HOME 可覆盖）
+python scripts/notes_db.py root D:/my-notes
+
 # 关键词入库 SQLite，生成交互式知识图谱（vis-network；mindmap 子命令可出树状思维导图）
-python scripts/notes_db.py --root mynotes sync
-python scripts/notes_db.py --root mynotes graph --open
+python scripts/notes_db.py sync
+python scripts/notes_db.py graph --open
+
+# 新笔记计数：每满 20 篇自动编译一次合集（合集-日期.pdf）并归零；
+# collect 子命令可立即出合集
+python scripts/notes_db.py bump
 ```
 
 写一篇新笔记：在 `notes/` 下新建文件，先写 `#note-header(…)`，正文从 `==` 起。

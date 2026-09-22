@@ -3,7 +3,8 @@
 
 把笔记项目的关键词与结构存进 SQLite，再生成可交互的浏览器视图。
 
-子命令（--root 指向笔记项目目录，默认当前目录）：
+子命令（--root 指向笔记项目目录；不传时依次取：环境变量 TYPST_NOTES_HOME >
+状态文件里登记的位置 > 当前目录）：
   sync      扫描 notes/*.typ 的 note-header（标题/日期/标签/状态/来源/摘要）
             与节标题（== / ===），全量重建 notes.db
   graph     从 notes.db 生成 graph.html——交互式知识图谱（vis-network 力导向图）：
@@ -12,22 +13,28 @@
             「显示笔记节点」开关把每篇笔记也放进图里（推荐先看这个）
   mindmap   从 notes.db 生成 mindmap.html / mindmap.md——树状思维导图
             （markmap），层级视图的补充
+  root      查询/登记笔记项目的存储位置（不带参数=查询，带路径=登记）。
+            第一次为用户建笔记项目时先问清存哪里，登记一次，
+            之后所有子命令不带 --root 就默认用这个位置
+  bump      新建一篇笔记后跑一次：计数 +1；满 20 篇自动编译合集
+            （合集-日期.pdf，调 typst compile collection.typ）并把计数归零
+  collect   不看计数，立即编译一次合集并归零
 
-用法：
-  python notes_db.py --root <笔记项目目录> sync
-  python notes_db.py --root <笔记项目目录> graph --open    # 知识图谱
-  python notes_db.py --root <笔记项目目录> mindmap --open  # 思维导图（可选）
-
+状态文件：~/.typst-note-author/state.json（存储位置、计数器、上次合集日期）。
 依赖：Python 3.8+（仅标准库）。查看 HTML 需联网加载 CDN 渲染库
 （vis-network / markmap），图数据本身已内嵌在 HTML 里。
 """
 
 import argparse
 import json
+import os
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import webbrowser
+from datetime import date
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -37,6 +44,50 @@ DB_NAME = "notes.db"
 MD_NAME = "mindmap.md"
 HTML_NAME = "mindmap.html"
 GRAPH_NAME = "graph.html"
+
+# ---- 技能的持久状态（跨会话记住存储位置与计数器）----
+# 环境变量 TYPST_NOTES_HOME 优先于状态文件；两者都没有时 --root 才落到当前目录
+ENV_VAR = "TYPST_NOTES_HOME"
+COLLECT_EVERY = 20  # 每新建多少篇笔记自动编译一次合集
+STATE_DIR = Path.home() / ".typst-note-author"
+STATE_FILE = STATE_DIR / "state.json"
+
+
+def load_state():
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    return {}
+
+
+def save_state(st):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(
+        json.dumps(st, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def notes_root():
+    """笔记项目的位置：环境变量 > 状态文件；都没有返回 None。"""
+    env = os.environ.get(ENV_VAR)
+    if env:
+        return Path(env).expanduser()
+    st = load_state()
+    if st.get("notes_root"):
+        return Path(st["notes_root"])
+    return None
+
+
+def resolve_root(cli):
+    """子命令实际使用的目录：显式 --root > 环境变量 > 状态文件 > 当前目录。"""
+    if cli:
+        return Path(cli).expanduser().resolve()
+    r = notes_root()
+    if r:
+        return r.resolve()
+    return Path.cwd()
 
 # ============================================================
 # 解析 .typ 笔记
@@ -513,17 +564,97 @@ def cmd_graph(root, open_browser):
         webbrowser.open(out.resolve().as_uri())
 
 
+# ============================================================
+# 存储位置与合集计数（状态在 ~/.typst-note-author/state.json）
+# ============================================================
+
+
+def cmd_root(path):
+    if path:
+        p = Path(path).expanduser().resolve()
+        if not p.is_dir():
+            print(f"[root] 目录还不存在：{p}（先搭脚手架再登记，或先 mkdir）", file=sys.stderr)
+            sys.exit(1)
+        st = load_state()
+        st["notes_root"] = str(p)
+        save_state(st)
+        print(f"[root] 笔记位置已登记：{p}")
+        print(f"[root] 之后所有子命令不带 --root 都默认用这里（{ENV_VAR} 环境变量可覆盖）")
+    else:
+        r = notes_root()
+        if r:
+            print(r)
+        else:
+            print("[root] NOT_SET——第一次使用先问用户存哪里，然后：notes_db.py root <路径>")
+            sys.exit(3)
+
+
+def cmd_collect(root):
+    col = root / "collection.typ"
+    if not col.exists():
+        print(f"[collect] {col} 不存在——先按技能第 1 步把 template/ 搭到这个目录", file=sys.stderr)
+        sys.exit(1)
+    typst = shutil.which("typst")
+    if not typst:
+        print("[collect] 找不到 typst 命令，确认已安装并在 PATH 里", file=sys.stderr)
+        sys.exit(1)
+    out = root / f"合集-{date.today():%Y%m%d}.pdf"
+    r = subprocess.run(
+        [typst, "compile", str(col), str(out)],
+        cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if r.returncode != 0:
+        print(f"[collect] 合集编译失败：\n{(r.stderr or r.stdout)[:2000]}", file=sys.stderr)
+        sys.exit(1)
+    st = load_state()
+    st["since_collection"] = 0
+    st["last_collection"] = f"{date.today():%Y-%m-%d}"
+    save_state(st)
+    print(f"[collect] 合集已生成：{out}（计数已归零）")
+
+
+def cmd_bump():
+    st = load_state()
+    n = st.get("since_collection", 0) + 1
+    st["since_collection"] = n
+    st["total_created"] = st.get("total_created", 0) + 1
+    save_state(st)
+    print(f"[bump] 新建第 {n} 篇（自上次合集起），累计 {st['total_created']} 篇")
+    if n < COLLECT_EVERY:
+        print(f"[bump] 距下次自动合集还有 {COLLECT_EVERY - n} 篇")
+        return
+    print(f"[bump] 满 {COLLECT_EVERY} 篇，自动创建合集——")
+    root = notes_root()
+    if root is None or not root.is_dir():
+        print("[bump] 笔记位置还没登记（root 子命令），登记后手动跑一次 collect", file=sys.stderr)
+        sys.exit(3)
+    cmd_collect(root)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--root", default=".", help="笔记项目目录（含 notes/ 子目录），默认当前目录")
+    ap.add_argument("--root", default=None, help="笔记项目目录；不传时用 TYPST_NOTES_HOME 或已登记的位置")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("sync", help="扫描 notes/*.typ，全量重建 notes.db")
     p_graph = sub.add_parser("graph", help="从 notes.db 生成 vis-network 交互式知识图谱 HTML")
     p_graph.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     p_mm = sub.add_parser("mindmap", help="从 notes.db 生成 markmap 交互导图 HTML")
     p_mm.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
+    p_root = sub.add_parser("root", help="查询/登记笔记项目位置（不带参数=查询）")
+    p_root.add_argument("path", nargs="?", help="登记的目录路径")
+    sub.add_parser("bump", help="新建一篇笔记后计数 +1，满 20 篇自动出合集")
+    sub.add_parser("collect", help="立即编译一次合集并归零计数")
     args = ap.parse_args()
-    root = Path(args.root).resolve()
+
+    # root / bump 不依赖 --root（root 管的就是位置本身，bump 读状态文件）
+    if args.cmd == "root":
+        cmd_root(args.path)
+        return
+    if args.cmd == "bump":
+        cmd_bump()
+        return
+
+    root = resolve_root(args.root)
     if not root.is_dir():
         print(f"[!] 目录不存在：{root}", file=sys.stderr)
         sys.exit(1)
@@ -531,6 +662,8 @@ def main():
         cmd_sync(root)
     elif args.cmd == "graph":
         cmd_graph(root, args.open)
+    elif args.cmd == "collect":
+        cmd_collect(root)
     else:
         cmd_mindmap(root, args.open)
 
