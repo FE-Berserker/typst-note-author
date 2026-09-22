@@ -160,14 +160,16 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
   关键词为节点，**同一篇笔记出现过的关键词互相关联**（共现边，边越粗同现
   越多），节点大小 = 关联笔记数；拖动节点重排、滚轮缩放、点击节点高亮它的
   关联、搜索框定位关键词；「显示笔记节点」开关把每篇笔记也放进图里
-  （虚线连向它的标签）。
+  （虚线连向它的标签）。**点击笔记节点直接打开该篇 PDF**——graph 生成时
+  会先把每篇笔记逐篇编译到 `notes-pdf/`（编译失败的节点保留、标注不可跳转，
+  重跑 graph 可补）；加 `--no-pdf` 跳过编译、复用已有 PDF。
 - SQLite 是四张表：`notes` / `sections` / `keywords` / `note_keywords`，
   想自己写查询（比如「哪些笔记还是待复习」）直接用 sqlite3 读 `notes.db`。
 - 层级视角的补充：`mindmap` 子命令生成树状思维导图（markmap 渲染，
   「关键词图谱」与「笔记库」两个视图，附 mindmap.md 大纲备份）。
 - sync 是全量重建：改了笔记、增删标签之后重新跑一次 sync 再 graph；
-  生成物（notes.db / graph.html / mindmap.html / mindmap.md）落在用户项目里，
-  模板自带的 .gitignore 已覆盖它们，不会误提交。
+  生成物（notes.db / graph.html / notes-pdf/ / mindmap.html / mindmap.md）落在
+  用户项目里，模板自带的 .gitignore 已覆盖它们，不会误提交。
 
 ## 模板文件一览
 

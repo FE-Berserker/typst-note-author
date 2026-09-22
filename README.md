@@ -74,6 +74,7 @@ typst compile collection.typ 我的笔记.pdf
 python scripts/notes_db.py root D:/my-notes
 
 # 关键词入库 SQLite，生成交互式知识图谱（vis-network；mindmap 子命令可出树状思维导图）
+# 知识图谱会把每篇笔记逐篇编译到 notes-pdf/，点击笔记节点直接打开该篇 PDF
 python scripts/notes_db.py sync
 python scripts/notes_db.py graph --open
 

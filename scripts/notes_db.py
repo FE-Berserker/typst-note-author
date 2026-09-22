@@ -44,6 +44,7 @@ DB_NAME = "notes.db"
 MD_NAME = "mindmap.md"
 HTML_NAME = "mindmap.html"
 GRAPH_NAME = "graph.html"
+PDF_DIR_NAME = "notes-pdf"  # 逐篇编译的 PDF，供知识图谱点击跳转
 
 # ---- 技能的持久状态（跨会话记住存储位置与计数器）----
 # 环境变量 TYPST_NOTES_HOME 优先于状态文件；两者都没有时 --root 才落到当前目录
@@ -484,7 +485,7 @@ GRAPH_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <h1>笔记知识图谱</h1>
-<div class="hint">拖动节点重排 · 滚轮缩放 · 点击节点高亮它的关联 · 搜索定位关键词 · 节点大小 = 关联笔记数</div>
+<div class="hint">点击笔记节点打开该篇 PDF · 点击关键词节点高亮它的关联 · 拖动重排 · 滚轮缩放 · 搜索定位 · 节点大小 = 关联笔记数</div>
 <div id="bar">
   <input type="text" id="q" placeholder="搜索关键词…">
   <label><input type="checkbox" id="show-notes">显示笔记节点</label>
@@ -524,6 +525,13 @@ document.getElementById('physics').addEventListener('change', e =>
 document.getElementById('fit').addEventListener('click', () => net.fit());
 setTimeout(() => net.fit(), 1200);
 
+// 笔记节点点击 → 打开该篇 PDF（相对本页的路径；编译失败的节点没有 pdf 字段）
+net.on('click', props => {
+  if (props.nodes.length !== 1) return;
+  const n = nodes.get(props.nodes[0]);
+  if (n && n.pdf) window.open(n.pdf, '_blank');
+});
+
 const q = document.getElementById('q');
 q.addEventListener('input', () => {
   const s = q.value.trim().toLowerCase();
@@ -544,7 +552,64 @@ q.addEventListener('input', () => {
 """
 
 
-def cmd_graph(root, open_browser):
+def compile_note_pdfs(root):
+    """把每篇笔记单独编译成 notes-pdf/<文件名>.pdf，返回 {笔记文件名: 相对路径}。
+
+    入口文件临时写在项目根（与 single.typ 同构），因为笔记里的相对 import
+    （../note.typ）按笔记文件自身位置解析，根目录正好匹配。"""
+    notes_dir = root / "notes"
+    if not notes_dir.is_dir() or not (root / "note.typ").exists():
+        return {}
+    typst = shutil.which("typst")
+    if not typst:
+        print("[graph] 找不到 typst，跳过逐篇 PDF（笔记节点将不可跳转）", file=sys.stderr)
+        return {}
+    pdf_dir = root / PDF_DIR_NAME
+    pdf_dir.mkdir(exist_ok=True)
+    links = {}
+    failed = []
+    for note in sorted(notes_dir.glob("*.typ")):
+        entry = root / f"_build-{note.stem}.typ"
+        out_pdf = pdf_dir / f"{note.stem}.pdf"
+        entry.write_text(
+            '#import "note.typ": *\n#import "figstyle.typ": *\n'
+            "#show: note-setup\n"
+            f'#include "notes/{note.name}"\n',
+            encoding="utf-8",
+        )
+        try:
+            r = subprocess.run(
+                [typst, "compile", str(entry), str(out_pdf)],
+                cwd=str(root), capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+            )
+            if r.returncode == 0:
+                links[note.name] = f"{PDF_DIR_NAME}/{out_pdf.name}"
+            else:
+                failed.append((note.name, " / ".join(
+                    (r.stderr or r.stdout).strip().splitlines()[:2])))
+        finally:
+            entry.unlink(missing_ok=True)
+    for name, err in failed:
+        print(f"[graph] ⚠ {name} 编译失败（节点保留、不可跳转）：{err}", file=sys.stderr)
+    return links
+
+
+def existing_note_pdfs(root):
+    """不编译时复用 notes-pdf/ 里已有的 PDF。"""
+    pdf_dir = root / PDF_DIR_NAME
+    if not pdf_dir.is_dir():
+        return {}
+    notes_dir = root / "notes"
+    links = {}
+    for note in sorted(notes_dir.glob("*.typ")) if notes_dir.is_dir() else []:
+        p = pdf_dir / f"{note.stem}.pdf"
+        if p.exists():
+            links[note.name] = f"{PDF_DIR_NAME}/{p.name}"
+    return links
+
+
+def cmd_graph(root, open_browser, make_pdfs):
     db = root / DB_NAME
     if not db.exists():
         print(f"[graph] 没找到 {db}，先运行 sync", file=sys.stderr)
@@ -555,6 +620,21 @@ def cmd_graph(root, open_browser):
     if not data["nodes"]:
         print("[graph] 库是空的：先在笔记的 note-header 里写 tags，再 sync", file=sys.stderr)
         sys.exit(1)
+
+    # 逐篇编译 PDF 并挂到笔记节点上：点击节点即可打开该篇 PDF
+    links = compile_note_pdfs(root) if make_pdfs else existing_note_pdfs(root)
+    for n in data["nodes"]:
+        if n["group"] != "note":
+            continue
+        fname = n["id"][len("note:"):]
+        if fname in links:
+            n["pdf"] = links[fname]
+            n["title"] += "<br>点击打开 PDF"
+        else:
+            n["title"] += "<br>（未生成 PDF，不可跳转；重跑 graph 可补）"
+    if links:
+        print(f"[graph] 逐篇 PDF：{len(links)} 篇就绪（{PDF_DIR_NAME}/，点击笔记节点打开）")
+
     # </ 转义防止笔记标题里出现它时截断 <script>
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out = root / GRAPH_NAME
@@ -638,6 +718,7 @@ def main():
     sub.add_parser("sync", help="扫描 notes/*.typ，全量重建 notes.db")
     p_graph = sub.add_parser("graph", help="从 notes.db 生成 vis-network 交互式知识图谱 HTML")
     p_graph.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
+    p_graph.add_argument("--no-pdf", action="store_true", help="跳过逐篇编译 PDF（笔记节点不可跳转）")
     p_mm = sub.add_parser("mindmap", help="从 notes.db 生成 markmap 交互导图 HTML")
     p_mm.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     p_root = sub.add_parser("root", help="查询/登记笔记项目位置（不带参数=查询）")
@@ -661,7 +742,7 @@ def main():
     if args.cmd == "sync":
         cmd_sync(root)
     elif args.cmd == "graph":
-        cmd_graph(root, args.open)
+        cmd_graph(root, args.open, not args.no_pdf)
     elif args.cmd == "collect":
         cmd_collect(root)
     else:
