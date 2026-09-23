@@ -24,8 +24,9 @@
             上次合集收录的清单自动统计
 
 状态文件：~/.typst-note-author/state.json（存储位置、计数器、上次合集日期）。
-依赖：Python 3.8+（仅标准库）。查看 HTML 需联网加载 CDN 渲染库
-（vis-network / markmap），图数据本身已内嵌在 HTML 里。
+依赖：Python 3.8+（仅标准库）。HTML 视图优先用项目内 assets/vendor/ 的
+本地渲染库（vis-network / markmap），缺件时回落 CDN（需联网）；
+图数据本身已内嵌在 HTML 里。
 """
 
 import argparse
@@ -364,11 +365,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .hint {{ font-size: 12px; color: #999; margin: 0 20px 10px; }}
   .markmap-container {{ width: 100vw; height: 80vh; background: #fff;
        border-top: 1px solid #eee; border-bottom: 1px solid #eee; }}
+  .markmap-container svg {{ width: 100%; height: 100%; display: block; }}
 </style>
-<script>
-  window.markmap = {{ autoLoader: {{ manual: false }} }};
-</script>
-<script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.18"></script>
+{runtime_head}
 </head>
 <body>
 <h1>关键词图谱</h1>
@@ -381,9 +380,38 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <div class="markmap-container"><script type="text/markdown">
 {notes_md}
 </script></div>
+{runtime_tail}
 </body>
 </html>
 """
+
+#: 离线运行时：项目内存在 assets/vendor 三件套（d3 / markmap-lib /
+#: markmap-view 的本地副本）时优先使用——CDN（jsdelivr）不可达或 file://
+#: 受限时在线版会整页空白（2026-09-22 实测）。三件套可用
+#: curl -sLO https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js 等同源命令取得
+_VENDOR_FILES = (
+    "assets/vendor/d3.min.js",
+    "assets/vendor/markmap-lib.js",   # markmap-lib@0.18 dist/browser/index.iife.js
+    "assets/vendor/markmap-view.js",  # markmap-view@0.18 dist/browser/index.js
+)
+
+_ONLINE_HEAD = """<script>
+  window.markmap = { autoLoader: { manual: false } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.18"></script>"""
+
+_OFFLINE_TAIL = """<script>
+(function () {
+  var transformer = new markmap.Transformer();
+  document.querySelectorAll(".markmap-container").forEach(function (el) {
+    var md = el.querySelector('script[type="text/markdown"]').textContent;
+    var root = transformer.transform(md).root;
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    el.appendChild(svg);
+    markmap.Markmap.create(svg, { autoFit: true }, root);
+  });
+})();
+</script>"""
 
 
 def cmd_mindmap(root, open_browser):
@@ -398,10 +426,23 @@ def cmd_mindmap(root, open_browser):
 
     (root / MD_NAME).write_text(tags_md + "\n\n---\n\n" + notes_md + "\n", encoding="utf-8")
     html_path = root / HTML_NAME
+    offline = all((root / f).exists() for f in _VENDOR_FILES)
+    if offline:
+        runtime_head = "\n".join(f'<script src="{f}"></script>' for f in _VENDOR_FILES)
+        runtime_tail = _OFFLINE_TAIL
+    else:
+        runtime_head = _ONLINE_HEAD
+        runtime_tail = ""
     html_path.write_text(
-        HTML_TEMPLATE.format(tags_md=tags_md, notes_md=notes_md), encoding="utf-8"
+        HTML_TEMPLATE.format(
+            tags_md=tags_md,
+            notes_md=notes_md,
+            runtime_head=runtime_head,
+            runtime_tail=runtime_tail,
+        ),
+        encoding="utf-8",
     )
-    print(f"[mindmap] {html_path}  （{n} 篇笔记，两个视图）")
+    print(f"[mindmap] {html_path}  （{n} 篇笔记，两个视图；{'本地离线渲染' if offline else 'CDN 在线渲染'}）")
     print(f"[mindmap] 大纲备份：{root / MD_NAME}")
     if open_browser:
         webbrowser.open(html_path.resolve().as_uri())
@@ -499,7 +540,7 @@ GRAPH_HTML = """<!DOCTYPE html>
   #net { width: 100vw; height: calc(100vh - 118px); background: #fff;
          border-top: 1px solid #eee; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="__VIS_SRC__"></script>
 </head>
 <body>
 <h1>笔记知识图谱</h1>
@@ -656,8 +697,16 @@ def cmd_graph(root, open_browser, make_pdfs):
     # </ 转义防止笔记标题里出现它时截断 <script>
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out = root / GRAPH_NAME
-    out.write_text(GRAPH_HTML.replace("__DATA__", payload), encoding="utf-8")
-    print(f"[graph] {out}  （{data['stats']}）")
+    # 本地离线渲染：assets/vendor/vis-network.min.js 在场时优先（CDN 不可达
+    # 或 file:// 受限时在线版整页空白——与 mindmap 的离线逻辑同款）
+    vis_local = root / "assets/vendor/vis-network.min.js"
+    vis_src = "assets/vendor/vis-network.min.js" if vis_local.exists() \
+        else "https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"
+    out.write_text(
+        GRAPH_HTML.replace("__DATA__", payload).replace("__VIS_SRC__", vis_src),
+        encoding="utf-8",
+    )
+    print(f"[graph] {out}  （{data['stats']}；{'本地离线渲染' if vis_local.exists() else 'CDN 在线渲染'}）")
     if open_browser:
         webbrowser.open(out.resolve().as_uri())
 

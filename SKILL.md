@@ -177,7 +177,8 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> sync
 python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 ```
 
-- `graph.html` 是**交互式知识图谱**（vis-network 力导向图，CDN 加载需联网）：
+- `graph.html` 是**交互式知识图谱**（vis-network 力导向图；项目里放一份
+  `assets/vendor/vis-network.min.js` 即本地离线渲染，缺件时回落 CDN）：
   关键词为节点，**同一篇笔记出现过的关键词互相关联**（共现边，边越粗同现
   越多），节点大小 = 关联笔记数；拖动节点重排、滚轮缩放、点击节点高亮它的
   关联、搜索框定位关键词；「显示笔记节点」开关把每篇笔记也放进图里
