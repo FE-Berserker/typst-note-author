@@ -42,6 +42,17 @@ python <技能目录>/scripts/notes_db.py root <用户选择的路径>
 则环境变量优先）。`notes_db.py root`（不带参数）随时可查当前位置；
 没登记过时它会以退出码 3 提示 NOT_SET——那就再问一次用户。
 
+**已有项目开工前先体检**：脚手架复制出去的模板不会随技能更新——技能里
+修复的规则（表题在表格上方、跨页表头重复、过宽插图缩进）到不了旧拷贝，
+旧项目会带着旧问题继续排版。在**不是本次新建**的笔记项目上干活
+（写笔记、改版式、编译）之前，先跑：
+
+```bash
+python <技能目录>/scripts/notes_db.py --root <用户项目> doctor
+```
+
+缺什么按提示补（提示带具体规则写法）；doctor 全绿再开工。
+
 ### 2. 写笔记
 
 每篇笔记是 `notes/` 下的一个文件，固定是「笔记头 + 正文」两段：
@@ -188,7 +199,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、关键词/结构入库 SQLite（`sync`）、知识图谱（`graph`）、思维导图（`mindmap`）、合集计数与自动编译（`bump` / `collect`） |
+| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`）、知识图谱（`graph`）、思维导图（`mindmap`）、合集计数与自动编译（`bump` / `collect`） |
 | `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的色值、图形样式同步；改 `colors.typ` / `figstyle.typ` 后跑 |
 
 ## 四条必须记住的约定

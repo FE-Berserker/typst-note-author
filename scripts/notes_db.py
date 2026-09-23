@@ -645,6 +645,85 @@ def cmd_graph(root, open_browser, make_pdfs):
 
 
 # ============================================================
+# 模板体检（doctor）：项目里的模板拷贝是否落后于技能模板
+# ------------------------------------------------------------
+# 脚手架把 template/ 复制进用户项目后就断了联系：技能里修复的规则
+# 不会自动到达旧项目（旧拷贝缺「表题在表格上方」就是这么发生的）。
+# ============================================================
+
+# 历次修复中「旧拷贝最容易缺」的关键规则，逐条检查（文件, 名称, 匹配, 补法）
+CRITICAL_RULES = [
+    (
+        "note.typ",
+        "表题在表格上方",
+        r"figure\.where\(kind: table\): set figure\.caption\(position: top\)",
+        "题注一节补：show figure.where(kind: table): set figure.caption(position: top)",
+    ),
+    (
+        "note.typ",
+        "跨页表头重复（三线表底线用表格内 hline，不外包 block）",
+        r"table\.hline\(position: top",
+        "三线表一节换成「重建表格 + 追加 table.hline(position: top)」方案，见技能模板",
+    ),
+    (
+        "note.typ",
+        "过宽插图自动缩进版心（不盖旁注栏）",
+        r"show image: it => layout",
+        "补插图保护规则：show image: it => layout(sz => context { … scale … })，见技能模板",
+    ),
+]
+
+
+def cmd_doctor(root):
+    skill_tpl = Path(__file__).resolve().parent.parent / "template"
+    print(f"[doctor] 项目：{root}")
+    print(f"[doctor] 技能模板：{skill_tpl}")
+    problems = 0
+
+    core = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ", "single.typ", "collection.typ")
+    for f in core:
+        if not (root / f).exists():
+            print(f"✗ 缺核心文件 {f}——这个项目可能不是本技能搭的脚手架")
+            problems += 1
+
+    note = root / "note.typ"
+    if note.exists():
+        src = note.read_text(encoding="utf-8")
+        skill_note = skill_tpl / "note.typ"
+        skill_src = skill_note.read_text(encoding="utf-8") if skill_note.exists() else ""
+
+        v_proj = re.search(r'#let template-version = "([^"]*)"', src)
+        v_skill = re.search(r'#let template-version = "([^"]*)"', skill_src)
+        if not v_proj:
+            print("✗ note.typ 没有版本戳——技能修复之前的旧拷贝，强烈建议对照技能模板逐条体检并同步")
+            problems += 1
+        elif v_skill and v_proj.group(1) != v_skill.group(1):
+            print(f"! 模板版本 {v_proj.group(1)} ≠ 技能 {v_skill.group(1)}：技能模板修过问题，逐条做规则体检")
+        else:
+            print(f"✓ 模板版本 {v_proj.group(1)}（与技能一致）")
+
+        for fname, name, pat, fix in CRITICAL_RULES:
+            text = src if fname == "note.typ" else (root / fname).read_text(encoding="utf-8")
+            if re.search(pat, text):
+                print(f"✓ {name}")
+            else:
+                print(f"✗ {name}——{fix}")
+                problems += 1
+
+    # 其余文件逐字节对比是信息性的：有差异可能是用户的定制，也可能是旧拷贝
+    if skill_tpl.is_dir():
+        for f in core:
+            a, b = root / f, skill_tpl / f
+            if a.exists() and b.exists():
+                print(f"- {f}: {'与技能模板一致' if a.read_bytes() == b.read_bytes() else '有差异（你的定制，或旧拷贝）'}")
+
+    if problems:
+        print(f"[doctor] 发现 {problems} 个问题——修完再开工；拿不准时对照技能模板同步（保留你的定制）")
+        sys.exit(1)
+    print("[doctor] 模板健康，可以开工")
+
+
+# ============================================================
 # 存储位置与合集计数（状态在 ~/.typst-note-author/state.json）
 # ============================================================
 
@@ -725,6 +804,7 @@ def main():
     p_root.add_argument("path", nargs="?", help="登记的目录路径")
     sub.add_parser("bump", help="新建一篇笔记后计数 +1，满 20 篇自动出合集")
     sub.add_parser("collect", help="立即编译一次合集并归零计数")
+    sub.add_parser("doctor", help="体检项目里的模板拷贝是否落后于技能模板（已有项目开工前先跑）")
     args = ap.parse_args()
 
     # root / bump 不依赖 --root（root 管的就是位置本身，bump 读状态文件）
@@ -745,6 +825,8 @@ def main():
         cmd_graph(root, args.open, not args.no_pdf)
     elif args.cmd == "collect":
         cmd_collect(root)
+    elif args.cmd == "doctor":
+        cmd_doctor(root)
     else:
         cmd_mindmap(root, args.open)
 

@@ -27,6 +27,10 @@
 // 这正是 Typst 的 place 做不到的（见下面 mnote 一段的说明）。
 #import "@preview/marginalia:0.3.1" as marginalia
 
+// 模板版本：notes_db.py doctor 用它判断项目里的这份拷贝是否落后于技能模板。
+// 旧拷贝可能缺已修复的规则（如「表题在表格上方」），开工前先跑 doctor 体检。
+#let template-version = "2026-09-23"
+
 // ---- 版式参数 ----
 #let note-paper = "a4"
 #let note-margin-left = 2.0cm
