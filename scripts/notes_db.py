@@ -6,7 +6,11 @@
 子命令（--root 指向笔记项目目录；不传时依次取：环境变量 TYPST_NOTES_HOME >
 状态文件里登记的位置 > 当前目录）：
   sync      扫描 notes/*.typ 的 note-header（标题/日期/标签/状态/来源/摘要）
-            与节标题（== / ===），全量重建 notes.db
+            与节标题（== / ===），全量重建 notes.db；同时对比上次合集收录的
+            清单，自上次合集新增满 20 篇时自动创建合集（合集-日期.pdf）
+  collect   立即编译一次合集：先按当前笔记自动重写 collection.typ 的
+            include 列表（AUTO-INCLUDE 标记段内），再 typst compile，计数归零。
+            没有 AUTO 标记段说明是手工维护模式，include 不自动改
   graph     从 notes.db 生成 graph.html——交互式知识图谱（vis-network 力导向图）：
             关键词为节点、同一篇笔记出现过的关键词互相关联（共现边），
             节点大小 = 关联笔记数；可拖动重排、缩放、点击高亮、搜索定位，
@@ -16,9 +20,8 @@
   root      查询/登记笔记项目的存储位置（不带参数=查询，带路径=登记）。
             第一次为用户建笔记项目时先问清存哪里，登记一次，
             之后所有子命令不带 --root 就默认用这个位置
-  bump      新建一篇笔记后跑一次：计数 +1；满 20 篇自动编译合集
-            （合集-日期.pdf，调 typst compile collection.typ）并把计数归零
-  collect   不看计数，立即编译一次合集并归零
+  bump      已废弃（保留只为兼容旧指令）：计数不再手动记，由 sync 对比
+            上次合集收录的清单自动统计
 
 状态文件：~/.typst-note-author/state.json（存储位置、计数器、上次合集日期）。
 依赖：Python 3.8+（仅标准库）。查看 HTML 需联网加载 CDN 渲染库
@@ -264,6 +267,21 @@ def cmd_sync(root):
     print(f"[sync] 笔记 {len(notes)} 篇，关键词 {n_kw} 个（笔记-关键词关联 {kw_total} 条）")
     if not notes:
         print("[sync] 没扫到笔记：确认 --root 指向的目录下有 notes/*.typ")
+        return notes
+
+    # 自上次合集以来新增了多少篇：与状态里记的「上次合集收录清单」对账。
+    # 计数从这里来，不靠手动 bump——建笔记时谁都不用记着计数这件事。
+    st = load_state()
+    collected = set(st.get("collected_notes", []))
+    pending = [fname for fname, _h, _s in notes if fname not in collected]
+    if len(pending) >= COLLECT_EVERY:
+        print(f"[sync] 自上次合集已新增 {len(pending)} 篇（阈值 {COLLECT_EVERY}）——自动创建合集")
+        try:
+            cmd_collect(root)
+        except SystemExit:
+            print("[sync] 合集编译失败：处理上面的报错后手动跑一次 collect", file=sys.stderr)
+    else:
+        print(f"[sync] 距下次自动合集还有 {COLLECT_EVERY - len(pending)} 篇")
     return notes
 
 
@@ -748,11 +766,35 @@ def cmd_root(path):
             sys.exit(3)
 
 
+AUTO_BEGIN = "// ---- AUTO-INCLUDE BEGIN ----"
+AUTO_END = "// ---- AUTO-INCLUDE END ----"
+
+
+def auto_includes(root):
+    """把 collection.typ 的 AUTO-INCLUDE 标记段重写为当前 notes/*.typ 的
+    include 列表（按文件名排序）。没有标记段＝手工维护模式，不动并返回 False。"""
+    col = root / "collection.typ"
+    text = col.read_text(encoding="utf-8")
+    if AUTO_BEGIN not in text or AUTO_END not in text:
+        return False
+    notes_dir = root / "notes"
+    names = sorted(p.name for p in notes_dir.glob("*.typ")) if notes_dir.is_dir() else []
+    block = AUTO_BEGIN + "\n" + "\n\n".join(
+        f'#include "notes/{n}"' for n in names) + "\n" + AUTO_END
+    pattern = re.compile(re.escape(AUTO_BEGIN) + r".*?" + re.escape(AUTO_END), re.S)
+    col.write_text(pattern.sub(lambda _m: block, text, count=1), encoding="utf-8")
+    return True
+
+
 def cmd_collect(root):
     col = root / "collection.typ"
     if not col.exists():
         print(f"[collect] {col} 不存在——先按技能第 1 步把 template/ 搭到这个目录", file=sys.stderr)
         sys.exit(1)
+    if auto_includes(root):
+        print("[collect] include 列表已按当前笔记更新（AUTO-INCLUDE 段）")
+    else:
+        print("[collect] collection.typ 没有 AUTO-INCLUDE 标记（手工维护模式）：include 不自动改，确认新笔记都加进去了")
     typst = shutil.which("typst")
     if not typst:
         print("[collect] 找不到 typst 命令，确认已安装并在 PATH 里", file=sys.stderr)
@@ -765,29 +807,20 @@ def cmd_collect(root):
     if r.returncode != 0:
         print(f"[collect] 合集编译失败：\n{(r.stderr or r.stdout)[:2000]}", file=sys.stderr)
         sys.exit(1)
+    # 记下这次合集收录了哪些笔记，作为下次「新增篇数」的基线
+    notes_dir = root / "notes"
     st = load_state()
-    st["since_collection"] = 0
+    st["collected_notes"] = sorted(
+        p.name for p in notes_dir.glob("*.typ")) if notes_dir.is_dir() else []
     st["last_collection"] = f"{date.today():%Y-%m-%d}"
     save_state(st)
-    print(f"[collect] 合集已生成：{out}（计数已归零）")
+    print(f"[collect] 合集已生成：{out}（收录 {len(st['collected_notes'])} 篇，计数已归零）")
 
 
 def cmd_bump():
-    st = load_state()
-    n = st.get("since_collection", 0) + 1
-    st["since_collection"] = n
-    st["total_created"] = st.get("total_created", 0) + 1
-    save_state(st)
-    print(f"[bump] 新建第 {n} 篇（自上次合集起），累计 {st['total_created']} 篇")
-    if n < COLLECT_EVERY:
-        print(f"[bump] 距下次自动合集还有 {COLLECT_EVERY - n} 篇")
-        return
-    print(f"[bump] 满 {COLLECT_EVERY} 篇，自动创建合集——")
-    root = notes_root()
-    if root is None or not root.is_dir():
-        print("[bump] 笔记位置还没登记（root 子命令），登记后手动跑一次 collect", file=sys.stderr)
-        sys.exit(3)
-    cmd_collect(root)
+    print("[bump] bump 已移除：合集计数现在由 sync 自动统计")
+    print("[bump] 建/删笔记后照常 sync，自上次合集新增满 "
+          f"{COLLECT_EVERY} 篇时 sync 会自动创建合集")
 
 
 def main():
@@ -802,8 +835,8 @@ def main():
     p_mm.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     p_root = sub.add_parser("root", help="查询/登记笔记项目位置（不带参数=查询）")
     p_root.add_argument("path", nargs="?", help="登记的目录路径")
-    sub.add_parser("bump", help="新建一篇笔记后计数 +1，满 20 篇自动出合集")
-    sub.add_parser("collect", help="立即编译一次合集并归零计数")
+    sub.add_parser("bump", help="（已废弃）计数改由 sync 自动统计")
+    sub.add_parser("collect", help="立即编译一次合集：自动更新 include 列表并归零计数")
     sub.add_parser("doctor", help="体检项目里的模板拷贝是否落后于技能模板（已有项目开工前先跑）")
     args = ap.parse_args()
 

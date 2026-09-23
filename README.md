@@ -78,9 +78,9 @@ python scripts/notes_db.py root D:/my-notes
 python scripts/notes_db.py sync
 python scripts/notes_db.py graph --open
 
-# 新笔记计数：每满 20 篇自动编译一次合集（合集-日期.pdf）并归零；
-# collect 子命令可立即出合集
-python scripts/notes_db.py bump
+# 合集：sync 自动统计「自上次合集新增的笔记」，满 20 篇自动编译合集-日期.pdf
+# （include 列表由 AUTO-INCLUDE 段自动维护，建笔记不用碰 collection.typ）；随时可手动出
+python scripts/notes_db.py collect
 ```
 
 写一篇新笔记：在 `notes/` 下新建文件，先写 `#note-header(…)`，正文从 `==` 起。

@@ -21,6 +21,22 @@ description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/
 
 ## 工作流程
 
+### 先看请求范围（重要）
+
+下面的流程是**按意图取用的菜单，不是从头执行的清单**。每做一步先问：
+这一步是用户这次要的，还是流程顺带的？只做请求范围内的事：
+
+| 用户意图 | 做 | 不做 |
+| --- | --- | --- |
+| 「写 / 整理一篇笔记」 | 建 `notes/` 文件、写内容 | 不动 collection.typ、不改 single.typ、不编译合集、不出图谱 |
+| 「出这篇的 PDF」 | 改 single.typ 指向并编译 | 不动合集 |
+| 「入库 / 看知识图谱」 | doctor → sync → graph | 不动合集（除非 sync 报告满 20 篇自动触发） |
+| 「出合集 / 成册」 | collect | — |
+
+合集只由两件事触发：**sync 检测到自上次合集新增满 20 篇**（自动 collect），
+或**用户明确要**。不要为了「顺便验证」去编译合集或做其它未要求的导出——
+想做请求之外的事，先向用户说明并征得同意。
+
 ### 1. 搭脚手架
 
 把本技能的 `template/` 整个目录复制到用户项目里（不要改动技能目录本身）。
@@ -132,26 +148,20 @@ typst compile collection.typ 我的笔记.pdf   # 汇总成册
 New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非 Windows 系统
 需要思源黑体/思源宋体兜底（字体链已配好）。
 
-### 4. 加笔记 / 编册（每 20 篇自动出合集）
+### 4. 编册（满 20 篇自动出合集）
 
-在 `collection.typ` 末尾按顺序 `#include "notes/….typ"` 即可，
-总目录、页码、书眉自动跟上。笔记文件建议带日期前缀
-（`20260920-ANSYS-拓扑优化.typ`）：目录顺序由 include 的先后决定、与文件名
-无关，前缀能让文件管理器里的排序和册内顺序对上。
+合集**不由人顺手触发**：只在「自上次合集后新增满 20 篇」（sync 自动检测）
+或用户明确要合集时才做。计数由 sync 对比上次合集收录的清单自动统计，
+**建新笔记时不需要做任何与合集相关的事**：
 
-**新建一篇笔记后跑一次计数**（写完文件、include 进 collection.typ 之后）：
-
-```bash
-python <技能目录>/scripts/notes_db.py bump
-```
-
-- 计数器存在 `~/.typst-note-author/state.json`，每次 bump +1；
-- 满 **20 篇**时自动创建合集：调 `typst compile collection.typ` 生成
-  `合集-日期.pdf`（在登记的笔记位置），计数归零。编译失败会把原因带出来，
-  处理后手动跑 `collect` 重试；
-- 不想等 20 篇、立即出合集：直接跑 `collect` 子命令；
-- 计数只认 bump 的次数（即「自上次合集以来新建了几篇」），与笔记总数
-  无关——忘了 bump 不会多出合集，只会晚出。
+- 建新笔记**不用改 `collection.typ`**：include 列表由 `collect` 自动重写
+  （AUTO-INCLUDE 标记段内，按文件名排序；笔记文件带日期前缀
+  `20260920-ANSYS-拓扑优化.typ`，排序即册内顺序）。想手工控制顺序或取舍，
+  删掉那两行 BEGIN/END 标记，collect 从此不动它（出合集前自己加全）；
+- 每次 `sync` 报告「距下次自动合集还有 N 篇」；满 **20 篇**自动 `collect`：
+  更新 include → `typst compile collection.typ` 生成 `合集-日期.pdf` →
+  收录清单归档、计数归零。编译失败会把原因带出来，处理后手动重跑；
+- 用户随时要合集：直接跑 `collect` 子命令。
 
 ### 5. 关键词库与知识图谱
 
@@ -199,7 +209,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`）、知识图谱（`graph`）、思维导图（`mindmap`）、合集计数与自动编译（`bump` / `collect`） |
+| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动合集检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，自动维护 include） |
 | `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的色值、图形样式同步；改 `colors.typ` / `figstyle.typ` 后跑 |
 
 ## 四条必须记住的约定
