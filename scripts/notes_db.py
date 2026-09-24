@@ -734,9 +734,12 @@ CRITICAL_RULES = [
     ),
     (
         "note.typ",
-        "过宽插图自动缩进版心（不盖旁注栏）",
-        r"show image: it => layout",
-        "补插图保护规则：show image: it => layout(sz => context { … scale … })，见技能模板",
+        "插图不被重复缩放（没有多余的 show image 规则）",
+        r"插图：不需要额外规则",
+        "删掉 show image: it => layout(sz => context { … scale … }) 那一段。"
+        "Typst 自身会把过宽的图夹到容器宽度，旧规则把比例缩了两次"
+        "（实际宽度 = 版心² ÷ 自然宽），越宽的图越小，6000px 只剩版心 7%。"
+        "改法见技能模板 note.typ 的注释",
     ),
 ]
 
