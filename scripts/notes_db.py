@@ -11,7 +11,9 @@
   collect   立即编一卷：把当前**未收录**的笔记（至多 20 篇）写进 collection.typ
             的 include 列表（AUTO-INCLUDE 标记段内），再 typst compile，卷号递增。
             已收录进往期合集的笔记不会再进新卷，单卷体积因此不会一直长下去。
-            没有 AUTO 标记段说明是手工维护模式，include 不自动改；
+            收录账只对登记的项目记（notes_db.py root 登记的那个），对别的项目
+            会直接拒绝——交集剔名会把那边的收录账清掉；没有 AUTO 标记段说明是
+            手工维护模式，include 不自动改，只编译、不记账；
             --full 例外：把全部笔记编成一个整套合集（文件大，慎用）
   graph     从 notes.db 生成 graph.html——交互式知识图谱（vis-network 力导向图）：
             关键词为节点、同一篇笔记出现过的关键词互相关联（共现边），
@@ -50,6 +52,7 @@ import subprocess
 import sys
 import webbrowser
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -114,12 +117,21 @@ def resolve_root(cli):
 def read_balanced(text, start, open_ch="(", close_ch=")"):
     """从 start（指向开括号）读到配对的闭括号，返回括号内的文本。
 
-    字符串里的括号不算数；note-header 的参数跨多行，不能按行解析。
+    字符串里的括号不算数；// 行注释里的也不算（参数区是代码，注释里的孤括号
+    不该截断调用）；[内容块]（markup 模式）里的括号同样不算——summary: […]
+    里一个不成对的 )（比如笑脸 :)）不该把调用截断。note-header 的参数跨多行，
+    不能按行解析。
     """
     depth = 0
     in_str = False
     esc = False
-    for i in range(start, len(text)):
+    # [内容块]（markup 模式）里的括号都是文本：summary: […] 里一个不成对的 )
+    # （比如笑脸 :)）不该把 note-header 调用截断。只在配对外层圆括号时启用
+    # 这个跟踪——直接配对 […] 时（parse_header 取 summary）括号就是深度本身。
+    markup = 0
+    track_markup = open_ch != "["
+    i = start
+    while i < len(text):
         c = text[i]
         if in_str:
             if esc:
@@ -128,15 +140,58 @@ def read_balanced(text, start, open_ch="(", close_ch=")"):
                 esc = True
             elif c == '"':
                 in_str = False
+        elif markup > 0:
+            if c == "[":
+                markup += 1
+            elif c == "]":
+                markup -= 1
         elif c == '"':
             in_str = True
+        elif c == "[" and track_markup:
+            markup = 1
+        elif c == "/" and i + 1 < len(text) and text[i + 1] == "/":
+            j = text.find("\n", i)
+            if j == -1:
+                break
+            i = j
+            continue
         elif c == open_ch:
             depth += 1
         elif c == close_ch:
             depth -= 1
             if depth == 0:
                 return text[start + 1 : i]
+        i += 1
     return None
+
+
+def strip_line_comments(text):
+    """逐行剥掉 // 行注释（字符串感知）：字符串里的 // 不动——
+    source: "https://…" 这类 URL 都在引号里。只用于 note-header 调用区的
+    定位与配对；正文（markup）里的裸 URL 不适用这个规则。
+    按 \\n 切行而不用 splitlines()：后者会把 U+2028/U+2029 也算作换行，
+    标题里真有这两个字符时会被悄悄改写成 \\n。"""
+    out = []
+    for line in text.split("\n"):
+        in_str = False
+        esc = False
+        cut = len(line)
+        for i in range(len(line) - 1):
+            c = line[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "/" and line[i + 1] == "/":
+                cut = i
+                break
+        out.append(line[:cut])
+    return "\n".join(out)
 
 
 def parse_string(s):
@@ -184,17 +239,25 @@ def strip_inline_markup(t):
 
 
 def parse_note(path, text):
-    """从一篇笔记里取 note-header 与节标题（== / ===，跳过代码块）。"""
-    m = re.search(r"#note-header\s*\(", text)
+    """从一篇笔记里取 note-header 与节标题（== / ===）。
+
+    先剥 ``` 代码块再定位 note-header：代码示例里的 #note-header( 不算数。
+    调用区的定位与配对在剥过行注释的文本上进行（注释掉的 #note-header、
+    注释里的孤括号都不该影响解析）；节标题则只剥「行首或空白后的 //」
+    行尾注释——markup 里裸 URL 的 // 前面是冒号，不会被误伤。
+    """
+    body_wo_code = re.sub(r"```.*?```", "", text, flags=re.S)
+    head_zone = strip_line_comments(body_wo_code)
+    m = re.search(r"#note-header\s*\(", head_zone)
     if not m:
         return None
-    body = read_balanced(text, m.end() - 1)
+    body = read_balanced(head_zone, m.end() - 1)
     head = parse_header(body) if body is not None else {}
     head["title"] = head.get("title") or path.stem
 
-    body_wo_code = re.sub(r"```.*?```", "", text, flags=re.S)
     sections = []
     for line in body_wo_code.splitlines():
+        line = re.sub(r"(^|\s)//.*$", "", line)
         sm = re.match(r"^(={2,3})\s+(.+?)\s*$", line)
         if sm:
             sections.append((len(sm.group(1)), strip_inline_markup(sm.group(2))))
@@ -268,7 +331,8 @@ def sync_db(root):
                 "INSERT INTO sections(note_id, idx, level, text) VALUES (?,?,?,?)",
                 (i, idx, level, text),
             )
-        for tag in head.get("tags") or []:
+        # dict.fromkeys 去重保序：同一个标签写两遍只算一条关联
+        for tag in dict.fromkeys(head.get("tags") or []):
             con.execute("INSERT OR IGNORE INTO keywords(name) VALUES (?)", (tag,))
             kw_id = con.execute("SELECT id FROM keywords WHERE name = ?", (tag,)).fetchone()[0]
             con.execute(
@@ -303,7 +367,8 @@ def collect_pending(root, notes):
         try:
             auto = cmd_collect(root)
         except SystemExit:
-            print("[sync] 合集编译失败：处理上面的报错后手动跑一次 collect", file=sys.stderr)
+            print("[sync] 自动编卷中止：按上面的提示处理后，手动跑一次 collect 或 sync",
+                  file=sys.stderr)
             return len(pending)
         if not auto:
             # 手工维护模式：include 列表不由我们决定，编一次就够，别再循环
@@ -515,11 +580,14 @@ def build_graph_data(con):
             "value": kw_count[name], "color": col, "baseColor": col,
             "title": "<br>".join(tip),
         })
-    # 笔记节点默认隐藏：先看关键词之间的关系，需要时再勾选把笔记放进来
+    # 笔记节点默认隐藏：先看关键词之间的关系，需要时再勾选把笔记放进来。
+    # 例外：库里一个关键词都没有时，隐藏笔记节点会让画布一片空白、看着像坏了——
+    # 这时默认把笔记节点放出来（checkbox 的初始状态由 DATA.show_notes 同步）。
+    show_notes = len(kw_count) == 0
     for nid, fname, title, date, status in notes:
         nodes.append({
             "id": f"note:{fname}", "label": sanitize(title)[:14], "group": "note",
-            "shape": "box", "color": "#8f9aa8", "hidden": True,
+            "shape": "box", "color": "#8f9aa8", "hidden": not show_notes,
             "title": f"{sanitize(title)}（{date or '无日期'} · {status or '无状态'}）",
         })
 
@@ -543,13 +611,13 @@ def build_graph_data(con):
             eid += 1
             edges.append({
                 "id": f"e{eid}", "from": f"note:{fname}", "to": f"kw:{k}",
-                "group": "note", "hidden": True, "dashes": [2, 4],
+                "group": "note", "hidden": not show_notes, "dashes": [2, 4],
                 "color": {"color": "rgba(140,140,150,0.35)"},
                 "title": f"《{sanitize(title)}》打了标签 #{sanitize(k)}",
             })
 
     stats = f"{len(notes)} 篇笔记 · {len(kw_count)} 个关键词 · {len(pair_w)} 条共现关联"
-    return {"nodes": nodes, "edges": edges, "stats": stats}
+    return {"nodes": nodes, "edges": edges, "stats": stats, "show_notes": show_notes}
 
 
 GRAPH_HTML = """<!DOCTYPE html>
@@ -622,6 +690,8 @@ function applyNotes(on) {
     .map(e => ({ id: e.id, hidden: !on })));
 }
 document.getElementById('show-notes').addEventListener('change', e => applyNotes(e.target.checked));
+// 库里没有关键词时笔记节点默认就是显示的，checkbox 的初始外观跟着数据走
+if (DATA.show_notes) document.getElementById('show-notes').checked = true;
 document.getElementById('physics').addEventListener('change', e =>
   net.setOptions({ physics: { enabled: e.target.checked } }));
 document.getElementById('fit').addEventListener('click', () => net.fit());
@@ -668,7 +738,12 @@ def compile_note_pdfs(root):
     """把每篇笔记单独编译成 notes-pdf/<文件名>.pdf，返回 {笔记文件名: 相对路径}。
 
     入口文件临时写在项目根（与 single.typ 同构），因为笔记里的相对 import
-    （../note.typ）按笔记文件自身位置解析，根目录正好匹配。"""
+    （../note.typ）按笔记文件自身位置解析，根目录正好匹配。
+
+    增量：PDF 比笔记源文件和模板核心文件都新就直接复用，几百篇的库不会每次
+    graph 都全量重编。笔记引用的图片（assets/）不参与判断——只改了图的话，
+    把对应 PDF 删掉再跑，或 touch 一下笔记。编译按进程池并行（typst 是独立
+    子进程，互相不干扰），单篇超时 180 秒。"""
     notes_dir = root / "notes"
     if not notes_dir.is_dir() or not (root / "note.typ").exists():
         return {}
@@ -678,11 +753,21 @@ def compile_note_pdfs(root):
         return {}
     pdf_dir = root / PDF_DIR_NAME
     pdf_dir.mkdir(exist_ok=True)
-    links = {}
-    failed = []
-    for note in sorted(notes_dir.glob("*.typ")):
-        entry = root / f"_build-{note.stem}.typ"
+
+    tpl_mtime = 0.0
+    for f in CORE_FILES:
+        p = root / f
+        if p.exists():
+            tpl_mtime = max(tpl_mtime, p.stat().st_mtime)
+
+    def build(note):
+        """返回 (笔记文件名, 相对路径或 None, 错误信息或 None, 是否复用)。"""
         out_pdf = pdf_dir / f"{note.stem}.pdf"
+        if out_pdf.exists() and out_pdf.stat().st_mtime >= max(
+            note.stat().st_mtime, tpl_mtime
+        ):
+            return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", None, True
+        entry = root / f"_build-{note.stem}.typ"
         entry.write_text(
             '#import "note.typ": *\n#import "figstyle.typ": *\n'
             "#show: note-setup\n"
@@ -693,17 +778,34 @@ def compile_note_pdfs(root):
             r = subprocess.run(
                 [typst, "compile", str(entry), str(out_pdf)],
                 cwd=str(root), capture_output=True, text=True,
-                encoding="utf-8", errors="replace",
+                encoding="utf-8", errors="replace", timeout=180,
             )
             if r.returncode == 0:
-                links[note.name] = f"{PDF_DIR_NAME}/{out_pdf.name}"
-            else:
-                failed.append((note.name, " / ".join(
-                    (r.stderr or r.stdout).strip().splitlines()[:2])))
+                return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", None, False
+            err = " / ".join((r.stderr or r.stdout).strip().splitlines()[:2])
+            return note.name, None, err, False
+        except subprocess.TimeoutExpired:
+            return note.name, None, "编译超时（180 秒）", False
         finally:
             entry.unlink(missing_ok=True)
+
+    links = {}
+    failed = []
+    n_reused = 0
+    notes = sorted(notes_dir.glob("*.typ"))
+    workers = min(8, (os.cpu_count() or 4))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for name, link, err, reused in ex.map(build, notes):
+            if link:
+                links[name] = link
+                n_reused += 1 if reused else 0
+            if err:
+                failed.append((name, err))
     for name, err in failed:
         print(f"[graph] ⚠ {name} 编译失败（节点保留、不可跳转）：{err}", file=sys.stderr)
+    n_compiled = len(links) - n_reused
+    if n_compiled or n_reused:
+        print(f"[graph] 逐篇编译：新编 {n_compiled} 篇、复用未过期的 {n_reused} 篇")
     return links
 
 
@@ -747,8 +849,12 @@ def cmd_graph(root, open_browser, make_pdfs):
     if links:
         print(f"[graph] 逐篇 PDF：{len(links)} 篇就绪（{PDF_DIR_NAME}/，点击笔记节点打开）")
 
-    # </ 转义防止笔记标题里出现它时截断 <script>
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    # </ 转义防止笔记标题里出现它时截断 <script>；U+2028/U+2029 在 JS 字符串
+    # 字面量里是非法行分隔符（JSON 合法、JS 不合法），同样转掉，否则整页空白
+    payload = json.dumps(data, ensure_ascii=False) \
+        .replace("</", "<\\/") \
+        .replace("\u2028", "\\u2028") \
+        .replace("\u2029", "\\u2029")
     out = root / GRAPH_NAME
     # 本地离线渲染：assets/vendor/vis-network.min.js 在场时优先（CDN 不可达
     # 或 file:// 受限时在线版整页空白——与 mindmap 的离线逻辑同款）
@@ -794,7 +900,20 @@ CRITICAL_RULES = [
         "（实际宽度 = 版心² ÷ 自然宽），越宽的图越小，6000px 只剩版心 7%。"
         "改法见技能模板 note.typ 的注释",
     ),
+    (
+        "boxes.typ",
+        "code-box 图标名有效（heroic 0.1.2 没有 code，正确名 code-bracket）",
+        r'icon:\s*"code-bracket"',
+        'boxes.typ 里 code-box 的 icon: "code" 改成 "code-bracket"——'
+        "heroic 0.1.2 没有 code 图标，用到 code-box 就编译失败",
+    ),
 ]
+
+
+def _read_norm(p):
+    """读文本并规范化换行：Windows 上脚手架拷贝常被落成 CRLF，
+    逐字节对比会把纯换行差异报成「有差异」，淹没真正的漂移。"""
+    return p.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
 def cmd_doctor(root):
@@ -826,19 +945,33 @@ def cmd_doctor(root):
             print(f"✓ 模板版本 {v_proj.group(1)}（与技能一致）")
 
         for fname, name, pat, fix in CRITICAL_RULES:
-            text = src if fname == "note.typ" else (root / fname).read_text(encoding="utf-8")
-            if re.search(pat, text):
+            fpath = root / fname
+            if not fpath.exists():
+                continue  # 缺文件已在上面计过一次
+            if re.search(pat, fpath.read_text(encoding="utf-8")):
                 print(f"✓ {name}")
             else:
                 print(f"✗ {name}——{fix}")
                 problems += 1
 
-    # 其余文件逐字节对比是信息性的：有差异可能是用户的定制，也可能是旧拷贝
+    # 其余文件对比是信息性的：有差异可能是用户的定制，也可能是旧拷贝
     if skill_tpl.is_dir():
         for f in core:
             a, b = root / f, skill_tpl / f
             if a.exists() and b.exists():
-                print(f"- {f}: {'与技能模板一致' if a.read_bytes() == b.read_bytes() else '有差异（你的定制，或旧拷贝）'}")
+                print(f"- {f}: {'与技能模板一致' if _read_norm(a) == _read_norm(b) else '有差异（你的定制，或旧拷贝）'}")
+
+        # .gitignore 缺行也是信息性的：模板后来补的行（如 笔记包-*.zip）旧拷贝没有，
+        # 编译产物就有被误提交的风险
+        gi_a, gi_b = root / ".gitignore", skill_tpl / ".gitignore"
+        if gi_a.exists() and gi_b.exists():
+            have = {l.strip() for l in gi_a.read_text(encoding="utf-8").splitlines()}
+            missing = [l for l in gi_b.read_text(encoding="utf-8").splitlines()
+                       if l.strip() and not l.strip().startswith("#")
+                       and l.strip() not in have]
+            if missing:
+                print(f"! .gitignore 缺 {len(missing)} 行：{'、'.join(missing)}"
+                      "——照技能模板补上，免得产物被误提交")
 
     if problems:
         print(f"[doctor] 发现 {problems} 个问题——修完再开工；拿不准时对照技能模板同步（保留你的定制）")
@@ -914,12 +1047,29 @@ def cmd_collect(root, full=False):
     收完把清单**累加**进状态——已进过往期合集的笔记不会再次进新卷，所以单卷
     体积稳定在一卷的量级，不会随着笔记总数越编越厚。full=True 例外：全部笔记
     编成一个整套合集（沿用旧行为，几百篇就是几百 MB，慎用）。
-    返回是否接管了 include 列表（AUTO 标记段在，即非手工维护模式）。
+    收录账只对登记的项目（notes_db.py root 登记的那个）记：对别的项目跑
+    collect 会把那边的收录记录清掉（交集剔名），所以直接拒绝。手工维护模式
+    （没有 AUTO 标记段）只编译、不记账。返回是否接管了 include 列表。
     """
     col = root / "collection.typ"
     if not col.exists():
         print(f"[collect] {col} 不存在——先按技能第 1 步把 template/ 搭到这个目录", file=sys.stderr)
         sys.exit(1)
+
+    st = load_state()
+    owner = st.get("notes_root")
+    if owner and Path(owner).expanduser().resolve() != root.resolve():
+        # 收录清单只跟踪一个项目。对另一个项目记账时，「交集剔死名字」那一步
+        # 会把登记项目的收录记录全部丢掉——下次对它 sync 会把全部笔记当未收录，
+        # 自动连编一堆重复卷。所以宁可拒绝。
+        print(f"[collect] 状态里登记的是另一个项目（{owner}），为它编卷会清掉那边的收录账，已中止。",
+              file=sys.stderr)
+        print("[collect] 确认要对当前项目记账：先 notes_db.py root <当前项目> 登记接管状态；"
+              "只是想要个 PDF：直接 typst compile collection.typ", file=sys.stderr)
+        sys.exit(2)
+    if not owner:
+        print("[collect] 还没登记笔记位置（notes_db.py root <路径>）："
+              "收录账会记进全局状态，换项目干活前记得先登记")
 
     notes_dir = root / "notes"
     all_typ = sorted(p.name for p in notes_dir.glob("*.typ")) if notes_dir.is_dir() else []
@@ -927,8 +1077,8 @@ def cmd_collect(root, full=False):
     # notes/ 里没有 note-header 的文件不是笔记（辅助文件），每卷都要跟着一起编
     helpers = [n for n in all_typ if n not in set(all_names)]
 
-    st = load_state()
-    # 已删掉的笔记顺手从清单里剔掉，状态文件不积死名字
+    # 已删掉的笔记顺手从清单里剔掉，状态文件不积死名字（有上面的守卫，
+    # 这里的交集只会剔掉本项目里已删除的，不会误伤别的项目的账）
     collected = set(st.get("collected_notes", [])) & set(all_names)
     pending = [n for n in all_names if n not in collected]
     if full:
@@ -947,23 +1097,35 @@ def cmd_collect(root, full=False):
     if auto:
         print(f"[collect] include 列表已重写为本卷 {len(picked)} 篇（AUTO-INCLUDE 段）")
     else:
+        # 手工维护模式：编译出来的卷里有什么取决于用户自己的 include 列表，
+        # 与 picked 无关——把 picked 记成「已收录」就是账实不符。只编译，不记账。
         print("[collect] collection.typ 没有 AUTO-INCLUDE 标记（手工维护模式）：include 不自动改，"
-              "确认本卷的笔记都加进去了")
+              "编译以现有列表为准；本次只出 PDF、不记账（收录清单不动）。"
+              "要恢复自动记账，把 AUTO-INCLUDE 的 BEGIN/END 标记段加回来")
     typst = shutil.which("typst")
     if not typst:
         print("[collect] 找不到 typst 命令，确认已安装并在 PATH 里", file=sys.stderr)
         sys.exit(1)
     if full:
         out = root / f"合集-{date.today():%Y%m%d}.pdf"
+        # 整套合集不带卷号，同一天重跑会撞名——递增后缀避让，不静默覆盖
+        n = 1
+        while out.exists():
+            n += 1
+            out = root / f"合集-{date.today():%Y%m%d}-{n}.pdf"
     else:
         out = root / f"合集-{date.today():%Y%m%d}-卷{next_volume_no(root, st):02d}.pdf"
     r = subprocess.run(
         [typst, "compile", str(col), str(out)],
         cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=600,
     )
     if r.returncode != 0:
         print(f"[collect] 合集编译失败：\n{(r.stderr or r.stdout)[:2000]}", file=sys.stderr)
         sys.exit(1)
+    if not auto:
+        print(f"[collect] 合集已生成：{out}（手工维护模式，未记账）")
+        return False
     # 收录清单只增不减：下次「未收录」接着往后数，已经编进卷里的不再进新卷
     st["collected_notes"] = sorted(collected | set(picked))
     st["last_collection"] = f"{date.today():%Y-%m-%d}"
@@ -1076,6 +1238,10 @@ def pack_members(root, with_pdfs=False, everything=False):
         top = parts[0]
         if len(parts) == 1:
             if top == ".gitignore" or top in CORE_FILES:
+                included.append(rel)
+            elif p.suffix.lower() == ".typ" and not p.name.startswith("_build-"):
+                # 用户自建的根目录入口（single-*.typ 之类）——不收的话 restore
+                # 后就丢了；_build-*.typ 是 graph 逐篇编译的临时入口，不收
                 included.append(rel)
             elif with_pdfs and p.suffix.lower() == ".pdf":
                 included.append(rel)
@@ -1203,14 +1369,21 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
         print(f"[pack] 没打编译产物（PDF / {DB_NAME} / {GRAPH_NAME} / {PDF_DIR_NAME}/ 等），"
               "目标机器上重新生成即可；要一起带走加 --with-pdfs")
     if skipped:
+        # 根目录文件逐个点名（数量少、丢了难发现）；子目录按名字聚合计数
+        root_files = sorted(str(r) for r in skipped if len(r.parts) == 1)
+        if root_files:
+            print(f"[pack] 没打进去的根目录文件：{'、'.join(root_files)}")
         by_top = {}
         for rel in skipped:
-            by_top.setdefault(rel.parts[0], 0)
-            by_top[rel.parts[0]] += 1
-        items = "、".join(f"{k}{'/' if (root / k).is_dir() else ''}({v})"
-                          for k, v in sorted(by_top.items(), key=lambda x: -x[1])[:8])
-        more = f" 等 {len(by_top)} 项" if len(by_top) > 8 else ""
-        print(f"[pack] 没打进去：{items}{more}——需要就加 --with-pdfs / --all")
+            if len(rel.parts) > 1:
+                by_top.setdefault(rel.parts[0], 0)
+                by_top[rel.parts[0]] += 1
+        if by_top:
+            items = "、".join(f"{k}/({v})"
+                              for k, v in sorted(by_top.items(), key=lambda x: -x[1])[:8])
+            more = f" 等 {len(by_top)} 项" if len(by_top) > 8 else ""
+            print(f"[pack] 没打进去的目录：{items}{more}")
+        print("[pack] 需要这些也进包的话：--with-pdfs / --all")
     return out
 
 

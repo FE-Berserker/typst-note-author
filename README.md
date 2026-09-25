@@ -37,7 +37,7 @@ typst-note-author/
 └── template/              完整可编译的笔记样板
     ├── note.typ           核心：版式参数、字体、行内样式、笔记头、旁注
     ├── colors.typ         全部配色唯一来源
-    ├── boxes.typ          提示框 / 编号环境 / 加框公式
+    ├── boxes.typ          提示框 / 编号环境
     ├── figstyle.typ       CeTZ / Fletcher / Lilaq 统一图形样式
     ├── single.typ         单篇出口
     ├── collection.typ     汇总出口
@@ -66,7 +66,7 @@ cp -r template/ mynotes/ && cd mynotes
 # 单篇：改 single.typ 末尾 include 的那一行，然后
 typst compile single.typ 笔记.pdf
 
-# 汇总成册：在 collection.typ 里按顺序 include 各篇笔记
+# 汇总成册：include 列表由 collect 自动维护（AUTO-INCLUDE 段），不用手工改
 typst compile collection.typ 我的笔记.pdf
 
 # 笔记项目位置：第一次问清存哪里并登记，之后所有命令不带 --root 都默认用它

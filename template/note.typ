@@ -29,7 +29,7 @@
 
 // 模板版本：notes_db.py doctor 用它判断项目里的这份拷贝是否落后于技能模板。
 // 旧拷贝可能缺已修复的规则（如「表题在表格上方」），开工前先跑 doctor 体检。
-#let template-version = "2026-09-23"
+#let template-version = "2026-09-25"
 
 // ---- 版式参数 ----
 #let note-paper = "a4"
@@ -270,6 +270,10 @@
     table(
       columns: it.columns,
       rows: it.rows,
+      // 不透传的话，单张表显式设的 gutter 会被这条规则静默丢掉。
+      // （table 元素没有 gutter 字段，只有分列/分行两个，0.15 实测）
+      column-gutter: it.column-gutter,
+      row-gutter: it.row-gutter,
       align: it.align,
       inset: it.inset,
       stroke: it.stroke,

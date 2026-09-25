@@ -159,7 +159,8 @@ New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非
 - 建新笔记**不用改 `collection.typ`**：include 列表由 `collect` 自动重写
   （AUTO-INCLUDE 标记段内，按文件名排序；笔记文件带日期前缀
   `20260920-ANSYS-拓扑优化.typ`，排序即卷内顺序）。想手工控制顺序或取舍，
-  删掉那两行 BEGIN/END 标记，collect 从此不动它（出卷前自己加全）；
+  删掉那两行 BEGIN/END 标记，collect 从此不动它——手工模式下 collect
+  只编译出 PDF、不记收录账（账在你自己的 include 列表手里，脚本说了不算）；
 - 每次 `sync` 报告「未收录 N 篇，距下一卷还有 M 篇」；未收录满 **20 篇**
   自动 `collect`：更新 include → `typst compile collection.typ` 生成
   `合集-日期-卷NN.pdf` → 本卷篇目累加进「已收录清单」。一次 sync 会连编
@@ -170,7 +171,9 @@ New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非
 - 用户随时要合集：`collect` 编一卷当前未收录的（不足 20 篇也照编）；
   要一次把全部笔记编成整套，用 `collect --full`（文件很大，慎用）。
 - 已收录清单记在 `~/.typst-note-author/state.json`，**只跟踪一个笔记项目**
-  （`notes_root` 登记的那个）。换项目干活时留意：`collect` 只对登记的项目有意义。
+  （`notes_root` 登记的那个）。`collect` 也只给登记的项目记账：对别的项目
+  跑会直接拒绝（交集剔名会把登记项目的收录账清掉），要换项目先
+  `notes_db.py root <路径>` 重新登记。
 
 ### 5. 关键词库与知识图谱
 
@@ -246,7 +249,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 | --- | --- |
 | `note.typ` | 核心：版式参数、字体、行内样式、笔记头 `note-header`、旁注 `pnote` / `mnote`、通栏 `wide` |
 | `colors.typ` | 全部配色唯一来源：`note-colors-base` 是全局色，`note-themes` 是每篇笔记的主题色板；末尾两个开关（打印灰阶） |
-| `boxes.typ` | 提示框 / 编号环境 / 加框公式，Heroicons 图标 |
+| `boxes.typ` | 提示框 / 编号环境，Heroicons 图标 |
 | `figstyle.typ` | CeTZ 示意图、Fletcher 流程图、Lilaq 数据图的统一样式 |
 | `single.typ` | 单篇出口：一篇笔记一个 PDF |
 | `collection.typ` | 汇总出口：首页标题 + 自动总目录，之后每篇各起一页 |

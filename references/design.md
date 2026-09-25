@@ -8,7 +8,7 @@
 ```
 note.typ                     核心：版式参数 + 字体 + 行内样式 + 笔记头 + 旁注
 ├── colors.typ               全部配色唯一来源
-└── boxes.typ                提示框 / 编号环境 / 加框公式
+└── boxes.typ                提示框 / 编号环境
 figstyle.typ                 CeTZ / Fletcher / Lilaq 统一图形样式
 single.typ                   单篇出口
 collection.typ               汇总出口

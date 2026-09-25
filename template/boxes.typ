@@ -113,9 +113,11 @@
   color: box-colors.gray,
 )
 // 代码（书籍样板里由 Bookly 内置 code-box 本地化而来；这里直接是一个 callout）
+// icon 名修正：heroic 0.1.2 无 "code"，正确名为 "code-bracket"（此前无人用
+// 到 code-box，潜伏未暴露）
 #let code-box = callout.with(
   title: [代码],
-  icon: "code",
+  icon: "code-bracket",
   color: box-colors.purple,
   breakable: true,
 )
@@ -209,18 +211,3 @@
   align: center,
   breakable: false,
 )[#body #h(1fr) #sym.qed]
-
-// ============================================================
-// 加框公式（#boxeq）
-// ------------------------------------------------------------
-// 书籍样板里 Bookly 自带的 boxeq 只有一道 0.75pt 直角细框，与旁边的
-// 提示框相比显得寒酸；这里换成同一套框体（浅底、细边、圆角），不带标题牌。
-// ============================================================
-
-#let boxeq(body) = block(
-  stroke: 0.75pt + box-colors.gray.lighten(35%),
-  fill: box-body-fill,
-  radius: 3pt,
-  inset: (x: 1em, y: 0.7em),
-  body,
-)

@@ -59,6 +59,15 @@
 #formula-box[公式框适合放需要反复查的表达式。]
 #reference-box[参考框适合放延伸阅读、相关笔记、外部链接。]
 
+代码框默认允许跨页（长代码不用手动加 `breakable: true`）：
+
+#code-box[
+  ```python
+  def fib(n):
+      return n if n < 2 else fib(n - 1) + fib(n - 2)
+  ```
+]
+
 要自定义就用 `#callout(title: [], icon: "", color: rgb("#…"))[…]`，图标名见 Heroicons 官网。框默认整体不跨页，内容确实很长时加一句 `breakable: true`。
 
 == 表格与代码
@@ -70,9 +79,8 @@
     columns: (auto, auto, 1fr),
     table.header([元素], [写法], [用途]),
     [旁注], [`#pnote(note: […])[…]`], [正文之外的补充、疑问、反对],
-    [提示框], [`#keypoint-box[…]`], [要点、易错、结论、公式、参考五类],
+    [提示框], [`#keypoint-box[…]`], [要点、易错、结论、公式、参考、代码六类],
     [编号环境], [`#theorem[…]`], [定义、定理、引理、推论、命题、例，可交叉引用],
-    [加框公式], [`#boxeq[$…$]`], [需要被一眼找到的公式],
   ),
   caption: [模板提供的版式元素一览],
 ) <tab:note-elements>
@@ -109,7 +117,7 @@ $ integral_0^oo (sin x)/x dif x = pi/2 $
 ]
 
 #pnote(note: [模板在每篇笔记开头把编号归零，所以两篇笔记里都会出现「定理 1」——这是有意的，笔记各自成篇。])[
-  定义 @def:perpendicular 与定理 @thm:pythagoras 的编号由模板维护，插入或删除一个环境，后续编号与全文引用会一起更新。
+  @def:perpendicular 与 @thm:pythagoras 的编号由模板维护（引用自带「定义」「定理」前缀，不要再手写一遍），插入或删除一个环境，后续编号与全文引用会一起更新。
 ]
 
 插图沿用书籍样板的 `figstyle.typ`：示意图、流程图、数据图共用同一套颜色、字体与线宽。@fig:note-flow 是流程图（Fletcher 绘制）：

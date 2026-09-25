@@ -175,9 +175,12 @@ Noto Sans SC；KaiTi 缺失时宁可退回正文宋体）。**不要放只装了
 
 1. 在 `notes/` 下新建文件，照抄 `notes/note-format.typ` 的开头（`#import` +
    `#note-header(…)`），正文从 `==` 起；
-2. 想要它进汇总册，在 `collection.typ` 末尾按顺序加一行
-   `#include "notes/你的笔记.typ"`；
-3. 只想单独导出它，把 `single.typ` 末尾那行 `#include` 指过去。
+2. 只想单独导出它，把 `single.typ` 末尾那行 `#include` 指过去。
+
+汇总册不用管：`collection.typ` 的 include 列表由 `collect` 自动维护
+（AUTO-INCLUDE 段），`sync` 检测到未收录的笔记攒满 20 篇会自动编一卷。
+只有删了 BEGIN/END 标记进入手工维护模式后，才需要自己往 `collection.typ`
+里加 include——注意手工模式下 `collect` 只编译出 PDF、不记收录账。
 
 总目录、页码、书眉都会自己跟上，没有需要手工维护的清单。
 

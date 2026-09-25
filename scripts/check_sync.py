@@ -8,13 +8,21 @@
    的主题）应逐键相同；
 2. 图形样式——两端 template/figstyle.typ 的代码应相同。校验前会剥掉注释，
    并把 note-colors 归一成 book-colors，所以允许的差异只剩这两类，
-   其余任何不一致都视为漂移。
+   其余任何不一致都视为漂移；
+3. 提示框图标——note 端 boxes.typ 的图标全部走 heroic 包，逐个对照本地
+   heroic 包索引校验是否真实存在（"code" 曾潜伏：heroic 0.1.2 里正确的
+   名字是 code-bracket，一用就编译失败，示例笔记没用到所以没人发现）。
+   book 端不参与这项校验：它的 custom-box 路径走 bookly 自带的本地 SVG
+   （code.svg / info.svg 那套），图标名规则不同，放一起比会误报。
+   本地没有 heroic 包缓存时（首次编译前）跳过这项。
 
-任一漂移即以非零码退出并打印差异。改任一端 colors.typ / figstyle.typ 后跑：
+任一漂移即以非零码退出并打印差异。改任一端 colors.typ / figstyle.typ /
+boxes.typ 后跑：
 
   python scripts/check_sync.py
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -29,6 +37,11 @@ NOTE_COLORS = NOTE_ROOT / "template" / "colors.typ"
 BOOK_COLORS = BOOK_ROOT / "template" / "colors.typ"
 NOTE_FIG = NOTE_ROOT / "template" / "figstyle.typ"
 BOOK_FIG = BOOK_ROOT / "template" / "figstyle.typ"
+NOTE_BOXES = NOTE_ROOT / "template" / "boxes.typ"
+BOOK_BOXES = BOOK_ROOT / "template" / "boxes.typ"
+
+ICON = re.compile(r'icon:\s*"([^"]+)"')
+ICON_KEY = re.compile(r'^\s*"([a-z0-9-]+)":', re.M)
 
 RGB = re.compile(r'([\w-]+):\s*rgb\("#([0-9a-fA-F]{6})"\)')
 THEME = re.compile(
@@ -173,8 +186,51 @@ def check_figstyle():
     return False
 
 
+def heroic_index():
+    """本地 heroic 包缓存里的有效图标名集合；找不到缓存返回 None。
+
+    note 端 boxes.typ 的每个图标都经 heroic 的 hi() 渲染，名字必须命中它的
+    索引，否则一用就是编译期 assert。缓存在首次编译后才存在。
+    """
+    candidates = []
+    if os.environ.get("LOCALAPPDATA"):  # Windows
+        candidates.append(Path(os.environ["LOCALAPPDATA"]) / "typst/packages/preview/heroic")
+    candidates.append(Path.home() / ".cache/typst/packages/preview/heroic")  # Linux
+    candidates.append(
+        Path.home() / "Library/Application Support/typst/packages/preview/heroic"  # macOS
+    )
+    for base in candidates:
+        if not base.is_dir():
+            continue
+        for ver in sorted(base.iterdir(), reverse=True):
+            solid, outline = ver / "src/solid.typ", ver / "src/outline.typ"
+            if solid.exists() and outline.exists():
+                names = set(ICON_KEY.findall(solid.read_text(encoding="utf-8")))
+                names |= set(ICON_KEY.findall(outline.read_text(encoding="utf-8")))
+                return ver.name, names
+    return None
+
+
+def check_icons():
+    """note 端 boxes.typ 的图标名逐个对照本地 heroic 索引（见模块 docstring 第 3 条）。"""
+    found = heroic_index()
+    if found is None:
+        print("- boxes.typ 图标校验跳过：本地没有 heroic 包缓存（编译过一次之后才有）")
+        return True
+    ver, valid = found
+    used = sorted(set(ICON.findall(NOTE_BOXES.read_text(encoding="utf-8"))))
+    bad = [k for k in used if k not in valid]
+    if bad:
+        print(f"✗ boxes.typ 引用了 heroic {ver} 里不存在的图标：")
+        for k in bad:
+            print(f'  icon: "{k}"——可用名见 https://heroicons.com/')
+        return False
+    print(f"✓ boxes.typ 图标名全部有效（{len(used)} 个，对照 heroic {ver}）")
+    return True
+
+
 def main():
-    ok = check_colors() and check_figstyle()
+    ok = check_colors() and check_figstyle() and check_icons()
     if not ok:
         sys.exit(1)
     print("同步校验通过。")
