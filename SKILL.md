@@ -185,6 +185,11 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
   （虚线连向它的标签）。**点击笔记节点直接打开该篇 PDF**——graph 生成时
   会先把每篇笔记逐篇编译到 `notes-pdf/`（编译失败的节点保留、标注不可跳转，
   重跑 graph 可补）；加 `--no-pdf` 跳过编译、复用已有 PDF。
+  布局由 vis-network 在浏览器里现场跑（力导向，可拖动重排、勾选「物理模拟」
+  开关）。技能只关掉了它的**稳定化预布局**（`stabilization.enabled: false`）：
+  那是画布首帧的闸门，几百个节点的库在它跑完之前画布一直是白的。视野适配也
+  挪到首帧绘制之后、容器尺寸变化时再做——加载瞬间画布尺寸还没定，那时 fit()
+  会落空，页面停在 scale=1，只看得到图形中间一小块。
 - SQLite 是四张表：`notes` / `sections` / `keywords` / `note_keywords`，
   想自己写查询（比如「哪些笔记还是待复习」）直接用 sqlite3 读 `notes.db`。
 - 层级视角的补充：`mindmap` 子命令生成树状思维导图（markmap 渲染，

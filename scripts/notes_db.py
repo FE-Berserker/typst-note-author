@@ -562,8 +562,17 @@ const net = new vis.Network(
   { nodes: nodes, edges: edges },
   {
     interaction: { hover: true, tooltipDelay: 150 },
+    // 大图谱必须关掉 improvedLayout：它对 100+ 节点跑 Kamada-Kawai 预布局，
+    // O(n²) 的同步计算会把主线程卡死几分钟——页面一片空白就是它。
+    layout: { improvedLayout: false },
     physics: { enabled: true, solver: 'barnesHut',
-               barnesHut: { gravitationalConstant: -4200, springLength: 130 } },
+               // 布局还是交给 vis 现场跑（力导向 + 可拖动），但稳定化预布局这个
+               // 闸门必须关：enabled 为 true 时，那几百次迭代跑完之前画布上什么
+               // 都不画——900+ 节点的库跑不完，页面就一直白着，看着像图谱坏了。
+               // 关掉它，先画出初始布局，让物理边跑边收敛。
+               stabilization: { enabled: false },
+               barnesHut: { gravitationalConstant: -2600, springLength: 95,
+                            springConstant: 0.04, damping: 0.4 } },
     nodes: { shape: 'dot', borderWidth: 2,
              scaling: { min: 10, max: 36 },
              font: { face: 'system-ui, Microsoft YaHei, sans-serif', size: 14 } },
@@ -571,6 +580,8 @@ const net = new vis.Network(
   }
 );
 document.getElementById('stats').textContent = DATA.stats;
+// 同步画出首帧：不依赖 requestAnimationFrame，任何环境下都不会停在空白画布
+net.redraw();
 
 function applyNotes(on) {
   nodes.update(DATA.nodes.filter(n => n.group === 'note')
@@ -582,7 +593,17 @@ document.getElementById('show-notes').addEventListener('change', e => applyNotes
 document.getElementById('physics').addEventListener('change', e =>
   net.setOptions({ physics: { enabled: e.target.checked } }));
 document.getElementById('fit').addEventListener('click', () => net.fit());
-setTimeout(() => net.fit(), 1200);
+// 视野适配要等画布拿到真实尺寸才算得对：加载时立刻 fit() 会因为容器尺寸还是 0
+// 而落空，停在 scale=1（图只露出中间一小块）。首帧画完后适配一次，容器尺寸变化
+// 时再适配；用户自己滚轮缩放或拖动过就不打扰。
+const netEl = document.getElementById('net');
+let viewTouched = false;
+netEl.addEventListener('wheel', () => { viewTouched = true; }, { passive: true });
+netEl.addEventListener('pointerdown', () => { viewTouched = true; });
+const refit = () => { if (!viewTouched) net.fit(); };
+net.once('afterDrawing', refit);
+new ResizeObserver(refit).observe(netEl);
+window.addEventListener('resize', refit);
 
 // 笔记节点点击 → 打开该篇 PDF（相对本页的路径；编译失败的节点没有 pdf 字段）
 net.on('click', props => {
