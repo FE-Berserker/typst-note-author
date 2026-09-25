@@ -30,7 +30,7 @@
             20 篇一卷把导入的笔记编出来**（包里的合集 PDF 默认没跟过来，所以在
             新机器上重新编）。收录清单按本机自己的账算：本机原有已收录的继续
             认账，导进来还没收录的排进新卷；卷号取两边往期卷的最大号 +1，
-            不跟任何一边的旧卷撞号。--no-collect 只解包不编卷
+            不跟任何一边的旧卷撞号。--no-collect 只解包 + 重建 notes.db，不编卷
   bump      已废弃（保留只为兼容旧指令）：计数不再手动记，由 sync 对比
             往期合集收录的清单自动统计
 
@@ -246,7 +246,9 @@ CREATE TABLE IF NOT EXISTS note_keywords (
 """
 
 
-def cmd_sync(root):
+def sync_db(root):
+    """扫描 notes/*.typ，全量重建 notes.db（入库：标题/日期/标签/状态/来源/摘要
+    与节标题）。sync 与 restore 都先用它把库建起来——图谱、思维导图都读这个库。"""
     notes = scan_notes(root)
     db = root / DB_NAME
     con = sqlite3.connect(db)
@@ -280,28 +282,40 @@ def cmd_sync(root):
     print(f"[sync] 笔记 {len(notes)} 篇，关键词 {n_kw} 个（笔记-关键词关联 {kw_total} 条）")
     if not notes:
         print("[sync] 没扫到笔记：确认 --root 指向的目录下有 notes/*.typ")
-        return notes
+    return notes
 
-    # 还有多少篇没进过合集：与状态里记的「往期合集收录清单」对账。
-    # 计数从这里来，不靠手动 bump——建笔记时谁都不用记着计数这件事。
-    # 攒够一卷就编一卷，编完接着数：一次 sync 之后未收录的必定不足一卷。
+
+def collect_pending(root, notes):
+    """把未收录的笔记按卷编完（sync 与 restore 共用）。
+
+    跟状态里记的「往期合集收录清单」对账，攒够一卷编一卷，编完接着数：
+    一次跑完，未收录的必定不足一卷。返回未收录的剩余篇数。
+    """
     all_names = [fname for fname, _h, _s in notes]
-    while True:
+    while all_names:
         collected = set(load_state().get("collected_notes", []))
         pending = [n for n in all_names if n not in collected]
         if len(pending) < COLLECT_EVERY:
             print(f"[sync] 未收录 {len(pending)} 篇，距下一卷还有 "
                   f"{COLLECT_EVERY - len(pending)} 篇")
-            return notes
+            return len(pending)
         print(f"[sync] 未收录 {len(pending)} 篇（一卷 {COLLECT_EVERY} 篇）——自动编卷")
         try:
             auto = cmd_collect(root)
         except SystemExit:
             print("[sync] 合集编译失败：处理上面的报错后手动跑一次 collect", file=sys.stderr)
-            return notes
+            return len(pending)
         if not auto:
             # 手工维护模式：include 列表不由我们决定，编一次就够，别再循环
-            return notes
+            return len(pending)
+    return 0
+
+
+def cmd_sync(root):
+    """入库：重建 notes.db，再把未收录的笔记按卷编完。"""
+    notes = sync_db(root)
+    collect_pending(root, notes)
+    return notes
 
 
 # ============================================================
@@ -1301,22 +1315,25 @@ def cmd_restore(zip_path, into=None, force=False, no_state=False, no_collect=Fal
         print("[restore] 往期合集 PDF 不在包里（打包时没加 --with-pdfs）：要一起带过来，"
               "在源机器上重新 pack --with-pdfs，或把 合集-*.pdf 单独拷到这个目录")
 
-    if merged and not no_collect:
+    if merged:
         before = {p.name for p in target.glob("合集-*-卷*.pdf")}
-        left = len([n for n, _h, _s in scan_notes(target) if n not in set(load_state()["collected_notes"])])
-        if left >= COLLECT_EVERY:
-            full, rem = divmod(left, COLLECT_EVERY)
-            print(f"[restore] 开始编卷：待编 {left} 篇 → {full} 卷"
-                  + (f"，余 {rem} 篇不足一卷、留着等下次" if rem else "")
-                  + "；要逐卷编译（可能跑一阵，中断了再跑一次 sync 会接着编）")
-        cmd_sync(target)
-        new = sorted(p.name for p in target.glob("合集-*-卷*.pdf") if p.name not in before)
-        if new:
-            print(f"[restore] 编出 {len(new)} 卷：" + "、".join(new[:6])
-                  + ("…" if len(new) > 6 else ""))
-    elif merged and no_collect:
-        print("[restore] --no-collect：没有自动编卷；之后跑一次 sync 就会按 "
-              f"{COLLECT_EVERY} 篇一卷接着编")
+        notes = sync_db(target)      # 库总是重建：很便宜，图谱/思维导图都要它
+        if no_collect:
+            print("[restore] --no-collect：只重建了 notes.db，没有编卷；"
+                  f"之后跑一次 sync 就会按 {COLLECT_EVERY} 篇一卷接着编")
+        else:
+            left = len([n for n, _h, _s in notes
+                        if n not in set(load_state().get("collected_notes", []))])
+            if left >= COLLECT_EVERY:
+                full, rem = divmod(left, COLLECT_EVERY)
+                print(f"[restore] 开始编卷：待编 {left} 篇 → {full} 卷"
+                      + (f"，余 {rem} 篇不足一卷、留着等下次" if rem else "")
+                      + "；要逐卷编译（可能跑一阵，中断了再跑一次 sync 会接着编）")
+            collect_pending(target, notes)
+            new = sorted(p.name for p in target.glob("合集-*-卷*.pdf") if p.name not in before)
+            if new:
+                print(f"[restore] 编出 {len(new)} 卷：" + "、".join(new[:6])
+                      + ("…" if len(new) > 6 else ""))
     print("[restore] 目标机器上还要装 Typst 0.13+ 与模板字体；知识图谱随时用"
           f" graph --open 重建")
     return target
