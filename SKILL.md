@@ -1,6 +1,6 @@
 ---
 name: typst-note-author
-description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/来源）、右侧旁注栏、提示框与编号环境、三线表、图表公式，单篇导出与汇总成册两个出口共用一份内容；关键词与笔记结构可一键存入 SQLite，并生成 vis-network 交互式知识图谱（关键词共现网络）与 markmap 思维导图。当用户要做笔记、记学习笔记、整理笔记、把 Markdown 笔记排成 PDF，或提到 Typst 笔记、笔记模板、旁注、marginalia、笔记成册，或想看知识图谱、关键词图谱、思维导图、笔记知识结构时使用——即使用户只说「帮我把这些笔记排一下」「看看我的知识图谱」也应触发。
+description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/来源）、右侧旁注栏、提示框与编号环境、三线表、图表公式，单篇导出与汇总成册两个出口共用一份内容；关键词与笔记结构可一键存入 SQLite，并生成 vis-network 交互式知识图谱（关键词共现网络）与 markmap 思维导图；整个笔记项目还能打包成一个 zip 搬到别的电脑。当用户要做笔记、记学习笔记、整理笔记、把 Markdown 笔记排成 PDF，或提到 Typst 笔记、笔记模板、旁注、marginalia、笔记成册，或想看知识图谱、关键词图谱、思维导图、笔记知识结构，或要把笔记迁移/备份到别的电脑、换电脑带走笔记时使用——即使用户只说「帮我把这些笔记排一下」「看看我的知识图谱」也应触发。
 ---
 
 # Typst 中文笔记（笔记模板）
@@ -32,6 +32,7 @@ description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/
 | 「出这篇的 PDF」 | 改 single.typ 指向并编译 | 不动合集 |
 | 「入库 / 看知识图谱」 | doctor → sync → graph | 不动合集（除非 sync 报告未收录满 20 篇自动编卷） |
 | 「出合集 / 成册」 | collect（一卷；整套用 collect --full） | — |
+| 「打包 / 迁移 / 换电脑」 | pack（源机器）→ restore（目标机器） | 别对现有项目随手 restore：它会接管笔记位置与收录清单 |
 
 合集只由两件事触发：**sync 检测到未收录的笔记满 20 篇**（自动 collect 编一卷），
 或**用户明确要**。已经进过往期合集的笔记不会再进新卷，单卷因此不会越编越厚。不要为了「顺便验证」去编译合集或做其它未要求的导出——
@@ -206,6 +207,33 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
   生成物（notes.db / graph.html / notes-pdf/ / mindmap.html / mindmap.md）落在
   用户项目里，模板自带的 .gitignore 已覆盖它们，不会误提交。
 
+### 6. 换电脑 / 迁移 / 备份（pack → restore）
+
+用户说「打包笔记」「换电脑怎么搬」「备份一下笔记」时用这一对子命令。
+不要用「把整个目录拷过去」代替：项目里真正要搬的是 `notes/` 正文和
+`assets/` 素材，而编译产物占了大头——合集一个文件就几百 MB，`notes-pdf/`
+又是同样量级。pack 按白名单收，正好把这些留在原处。
+
+```bash
+# 源机器：打成 <项目>/笔记包-日期.zip（模板核心文件 + notes/ + assets/ + 打包清单）
+python <技能目录>/scripts/notes_db.py --root <项目> pack
+python <技能目录>/scripts/notes_db.py --root <项目> pack --no-assets   # 素材另拷时出小包（十几 MB）
+python <技能目录>/scripts/notes_db.py --root <项目> pack --with-pdfs   # 连编译好的 PDF 一起带走
+
+# 目标机器：解包 + 登记笔记位置 + 写回「已收录清单」
+python <技能目录>/scripts/notes_db.py restore 笔记包-20260925.zip --into D:/我的笔记
+```
+
+- **`restore` 写回已收录清单这一步不能省**：不做的话，目标机器上第一次
+  `sync` 会把全部老笔记算成未收录，一口气编出十几卷。清单就放在包里的
+  `note-pack.json`，手工迁移时照它补状态（或按包里的 `迁移说明.md` 走）；
+- 包里不含 PDF / `notes.db` / 图谱 HTML / `notes-pdf/`——到目标机器上
+  `sync` 与 `graph` 重新生成即可；`--no-assets` 的小包到那边要自己补 `assets/`；
+- 目标机器要装 Typst 0.13+ 与模板字体，技能本身从
+  github.com/FE-Berserker/typst-note-author 装；
+- `restore` 默认解到当前目录下与包同名的新目录；目录非空要 `--force`；
+  本机状态里登记着别的项目时也要 `--force` 才接管状态（否则只解包、不动状态）。
+
 ## 模板文件一览
 
 | 文件 | 职责 |
@@ -223,7 +251,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动编卷检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，一卷 20 篇、只收未收录的、自动维护 include） |
+| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动编卷检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，一卷 20 篇、只收未收录的、自动维护 include）、打包迁移（`pack` / `restore`，整项目一个 zip，含已收录清单） |
 | `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的色值、图形样式同步；改 `colors.typ` / `figstyle.typ` 后跑 |
 
 ## 四条必须记住的约定

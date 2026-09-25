@@ -22,6 +22,13 @@
   root      查询/登记笔记项目的存储位置（不带参数=查询，带路径=登记）。
             第一次为用户建笔记项目时先问清存哪里，登记一次，
             之后所有子命令不带 --root 就默认用这个位置
+  pack      把笔记项目打成一个 zip（迁移到另一台电脑用）：模板核心文件 +
+            notes/*.typ + assets/ + 打包清单；编译产物（PDF、notes.db、图谱）
+            默认不收——它们在目标机器上重新生成即可，而合集 PDF 动辄几百 MB。
+            --with-pdfs 连编译好的 PDF 一起收，--all 连临时文件一起收
+  restore   解开 pack 打的包：还原笔记到目标目录、登记笔记位置、并把包里的
+            「已收录清单」写回状态——不这么做的话目标机器上的 sync 会把所有
+            老笔记当成未收录，一次编出一堆卷
   bump      已废弃（保留只为兼容旧指令）：计数不再手动记，由 sync 对比
             往期合集收录的清单自动统计
 
@@ -40,6 +47,7 @@ import sqlite3
 import subprocess
 import sys
 import webbrowser
+import zipfile
 from datetime import date
 from pathlib import Path
 
@@ -953,6 +961,306 @@ def cmd_bump():
           f"{COLLECT_EVERY} 篇时 sync 会自动编一卷")
 
 
+# ============================================================
+# 打包迁移（pack / restore）：整个笔记项目打成一个 zip，换台电脑继续用
+# ------------------------------------------------------------
+# 打包只收「迁移真正需要的」：模板核心文件 + notes/*.typ + assets/。
+# 编译产物（合集与单篇 PDF、notes.db、graph.html、mindmap.html、notes-pdf/）
+# 都能在目标机器上重新生成，而它们往往比笔记本身大两个数量级——合集一个
+# 文件就几百 MB，默认收进去，包就没法传了。
+# 打包清单（note-pack.json）里带着「已收录清单」：restore 把它写回状态，
+# 目标机器上的 sync 才不会把老笔记当成未收录、一口气编出一堆卷。
+# ============================================================
+
+PACK_PREFIX = "笔记包"
+PACK_MANIFEST = "note-pack.json"
+PACK_README = "迁移说明.md"
+# 模板核心文件：skill 的 template/ 里除 notes/ 之外的那几个（跨项目复制的那份）
+CORE_FILES = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ", "single.typ", "collection.typ")
+PACK_SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".idea", ".vscode"}
+
+
+def pack_readme(manifest):
+    src = manifest["source_root"]
+    if manifest["with_pdfs"]:
+        pdfs_line = ("编译好的 PDF（`合集-*.pdf`、逐篇 PDF）**也在这个包里**"
+                     "（打包时用了 `--with-pdfs`），解出来就能看，不必重新编译。")
+    else:
+        pdfs_line = ("不含 `合集-*.pdf`、`notes-pdf/`、`notes.db`、`graph.html`、"
+                     "`mindmap.html`——这些在目标机器上重新生成即可（合集少则几十 MB、"
+                     "多则几百 MB，收进来包就没法传了）。")
+    return f"""# 笔记包迁移说明
+
+这个包由 typst-note-author 的 `notes_db.py pack` 生成（{manifest["packed_at"]}，来自 `{src}`）。
+里面是笔记项目的**正文与素材**，不是编译产物。
+
+## 包里有什么
+
+- `note.typ` / `colors.typ` / `boxes.typ` / `figstyle.typ` / `single.typ` / `collection.typ`
+  与 `.gitignore`：模板核心文件；
+- `notes/*.typ`：全部笔记正文，共 **{manifest["note_count"]} 篇**；
+- `assets/`：笔记引用的图片与素材{"" if manifest["with_assets"] else "（**本次没打进来**，见下）"}；
+- `note-pack.json`：打包清单（来源路径、篇数、已收录清单、模板版本）。
+
+{pdfs_line}
+
+## 目标机器上怎么用
+
+1. 装 Typst 0.13+，以及模板要的字体：Noto Serif SC（正文）、SimHei + Arial（标题）、
+   KaiTi/STKaiti（强调）、New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）；
+   首次编译要联网拉 `@preview` 依赖包。
+2. 装好本技能（github.com/FE-Berserker/typst-note-author），然后：
+
+   ```bash
+   python <技能目录>/scripts/notes_db.py restore 这个包.zip --into D:/我的笔记
+   ```
+
+   装技能的目的只是拿到 `notes_db.py`；不装也行——把包解开就能用
+   `typst compile single.typ 笔记.pdf` 编译，只是没有入库/图谱/自动合集。
+3. 恢复之后重建生成物：
+
+   ```bash
+   python <技能目录>/scripts/notes_db.py --root D:/我的笔记 sync       # 重建 notes.db
+   python <技能目录>/scripts/notes_db.py --root D:/我的笔记 graph --open # 重建知识图谱
+   ```
+
+`restore` 会把包里的「已收录清单」写回状态，所以 `sync` 不会把老笔记当成
+未收录、又编一遍卷；之后攒够 20 篇新笔记才会自动编下一卷。
+
+{"" if manifest["with_assets"] else "## 注意：这个包不含 assets/\n\n打包时用了 `--no-assets`（或 assets 为空）。笔记里的图片在目标机器上会缺，"
+ "需要把源项目的 `assets/` 目录单独拷过去，放在项目根目录下。\n"}
+"""
+
+
+def pack_members(root, with_pdfs=False, everything=False):
+    """挑出要打进包的文件，返回 (录入, 跳过) 两组相对路径。
+
+    默认＝模板核心文件 + notes/*.typ + assets/ + .gitignore；
+    --with-pdfs 再加编译好的 PDF，--all 则整个项目都收（跳过 .git 之类）。
+    产物、临时文件是否被打进包，都会在结尾逐条报出来，不会闷声丢东西。
+    """
+    included, skipped = [], []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root)
+        if any(part in PACK_SKIP_DIRS for part in rel.parts):
+            continue
+        # 上一版打出来的包不收，免得包里有包、越打越大
+        if p.name.startswith(PACK_PREFIX) and p.suffix.lower() == ".zip":
+            skipped.append(rel)
+            continue
+        if everything:
+            included.append(rel)
+            continue
+        parts = rel.parts
+        top = parts[0]
+        if len(parts) == 1:
+            if top == ".gitignore" or top in CORE_FILES:
+                included.append(rel)
+            elif with_pdfs and p.suffix.lower() == ".pdf":
+                included.append(rel)
+            else:
+                skipped.append(rel)
+        elif top == "assets":
+            included.append(rel)
+        elif top == "notes":
+            # notes/ 下的东西基本都带上（可能有贴在笔记旁边的图），但 *.pdf
+            # 按项目 .gitignore 的约定算编译产物，跟根目录一样默认不收
+            if p.suffix.lower() == ".pdf" and not with_pdfs:
+                skipped.append(rel)
+            else:
+                included.append(rel)
+        elif top == PDF_DIR_NAME and with_pdfs:
+            included.append(rel)
+        else:
+            skipped.append(rel)
+    return included, skipped
+
+
+def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False):
+    col = root / "collection.typ"
+    if not col.exists():
+        print(f"[pack] {root} 里没有 collection.typ——这不是本技能的笔记项目吧？", file=sys.stderr)
+        sys.exit(1)
+    if out:
+        out = Path(out).expanduser()
+        out = (out / f"{PACK_PREFIX}-{date.today():%Y%m%d}.zip") if out.is_dir() else out
+        out = out.resolve()
+    else:
+        out = root / f"{PACK_PREFIX}-{date.today():%Y%m%d}.zip"
+
+    st = load_state()
+    # 已收录清单只跟登记的那个项目对得上：打包别的项目时不带清单，
+    # 免得目标机器拿着另一个项目的清单对账（那会把这篇项目的笔记全算成新笔记）
+    owner = st.get("notes_root")
+    same_project = (not owner) or Path(owner).expanduser().resolve() == root.resolve()
+    if not same_project:
+        print(f"[pack] 注意：状态里登记的是另一个项目（{owner}），本包不带已收录清单——"
+              "到目标机器上第一次 sync 会把这里的笔记都当成未收录", file=sys.stderr)
+    notes = scan_notes(root)
+    tmpl = re.search(r'#let template-version = "([^"]*)"',
+                     (root / "note.typ").read_text(encoding="utf-8"))
+    manifest = {
+        "tool": "typst-note-author",
+        "manifest": PACK_MANIFEST,
+        "packed_at": f"{date.today():%Y-%m-%d}",
+        "source_root": str(root),
+        "template_version": tmpl.group(1) if tmpl else None,
+        "note_count": len(notes),
+        "with_assets": not no_assets,
+        "with_pdfs": with_pdfs,
+        "everything": everything,
+        # 迁移的关键：目标机器靠它认账，不把老笔记当新笔记重编卷
+        "collected_notes": sorted(st.get("collected_notes", [])) if same_project else [],
+        "last_collection": st.get("last_collection") if same_project else None,
+        "volumes": st.get("volumes", []) if same_project else [],
+        "note": "collected_notes 是打包时的「已收录清单」，restore 会写回目标机器的状态",
+    }
+
+    included, skipped = pack_members(root, with_pdfs, everything)
+    if no_assets:
+        included = [r for r in included if r.parts[0] != "assets"]
+    # 清单与说明排在最前，解包时第一眼就能看到
+    out.parent.mkdir(parents=True, exist_ok=True)
+    raw = raw_notes = raw_assets = 0
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(PACK_MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        z.writestr(PACK_README, pack_readme(manifest))
+        for rel in included:
+            p = root / rel
+            if p.resolve() == out:
+                continue
+            z.write(p, rel.as_posix())
+            sz = p.stat().st_size
+            raw += sz
+            if rel.parts[0] == "notes":
+                raw_notes += sz
+            elif rel.parts[0] == "assets":
+                raw_assets += sz
+    size = out.stat().st_size
+    n_note_files = sum(1 for r in included if r.parts[0] == "notes")
+    n_assets = sum(1 for r in included if r.parts[0] == "assets")
+    print(f"[pack] 已生成：{out}")
+    if included:
+        print(f"[pack] 文件 {len(included)} 个 + 清单/说明 2 个；"
+              f"原始 {raw / 1048576:.1f} MB → 压缩后 {size / 1048576:.1f} MB"
+              f"（{size / raw * 100:.0f}%）")
+    else:
+        print(f"[pack] 包里没有内容文件（{size / 1048576:.1f} MB）")
+    print(f"[pack] notes/ {n_note_files} 个文件（笔记 {manifest['note_count']} 篇，"
+          f"{raw_notes / 1048576:.1f} MB） | "
+          + (f"素材 {n_assets} 个（{raw_assets / 1048576:.1f} MB）" if not no_assets
+             else "素材未打包（--no-assets）")
+          + f" | 模板版本 {manifest['template_version'] or '未知'}")
+    if not no_assets and raw_assets > 200 * 1048576:
+        print(f"[pack] 素材占了 {raw_assets / 1048576:.0f} MB：素材能单独拷（U 盘、云盘）的话，"
+              "用 --no-assets 出一个只有笔记的小包更快")
+    if manifest["collected_notes"]:
+        print(f"[pack] 已收录清单随包带上：{len(manifest['collected_notes'])} 篇"
+              "（restore 会写回状态，目标机器不会把老笔记再编一遍卷）")
+    else:
+        print("[pack] 包里没有已收录清单：目标机器上第一次 sync 会把全部笔记当成未收录，"
+              f"按 {COLLECT_EVERY} 篇一卷编出来")
+    if no_assets:
+        print("[pack] --no-assets：没打素材，目标机器上笔记里的图片会缺")
+    if not with_pdfs and not everything:
+        print(f"[pack] 没打编译产物（PDF / {DB_NAME} / {GRAPH_NAME} / {PDF_DIR_NAME}/ 等），"
+              "目标机器上重新生成即可；要一起带走加 --with-pdfs")
+    if skipped:
+        by_top = {}
+        for rel in skipped:
+            by_top.setdefault(rel.parts[0], 0)
+            by_top[rel.parts[0]] += 1
+        items = "、".join(f"{k}{'/' if (root / k).is_dir() else ''}({v})"
+                          for k, v in sorted(by_top.items(), key=lambda x: -x[1])[:8])
+        more = f" 等 {len(by_top)} 项" if len(by_top) > 8 else ""
+        print(f"[pack] 没打进去：{items}{more}——需要就加 --with-pdfs / --all")
+    return out
+
+
+def _inside(target, dest):
+    """dest 是否落在 target 里（防 zip 里塞 ../ 或绝对路径往外写）。"""
+    try:
+        dest.relative_to(target)
+        return True
+    except ValueError:
+        return False
+
+
+def cmd_restore(zip_path, into=None, force=False, no_state=False):
+    zp = Path(zip_path).expanduser()
+    if not zp.is_file():
+        print(f"[restore] 找不到包：{zp}", file=sys.stderr)
+        sys.exit(1)
+    target = Path(into).expanduser() if into else Path.cwd() / zp.stem
+    target = target.resolve()
+
+    with zipfile.ZipFile(zp) as z:
+        names = z.namelist()
+        if PACK_MANIFEST not in names:
+            print(f"[restore] {zp.name} 里没有 {PACK_MANIFEST}——不是 pack 打的包", file=sys.stderr)
+            sys.exit(1)
+        manifest = json.loads(z.read(PACK_MANIFEST).decode("utf-8"))
+        bad = [n for n in names if not _inside(target, (target / n).resolve())]
+        if bad:
+            print(f"[restore] 包里这些路径会写到目标目录外面，已中止：{bad[:5]}", file=sys.stderr)
+            sys.exit(1)
+        if target.exists() and any(target.iterdir()) and not force:
+            print(f"[restore] {target} 不是空目录——确认要往里面写，加 --force", file=sys.stderr)
+            sys.exit(1)
+        target.mkdir(parents=True, exist_ok=True)
+        z.extractall(target)
+
+    files = [n for n in names if n != PACK_MANIFEST and not n.endswith("/")]
+    n_notes = sum(1 for n in files if n.startswith("notes/"))
+    n_assets = sum(1 for n in files if n.startswith("assets/"))
+    print(f"[restore] 已解开到：{target}")
+    print(f"[restore] notes/ 下 {n_notes} 个文件（清单记的笔记 {manifest.get('note_count')} 篇） | "
+          f"素材 {n_assets} 个 | 其它 {len(files) - n_notes - n_assets} 个")
+    if manifest.get("template_version"):
+        skill_note = Path(__file__).resolve().parent.parent / "template" / "note.typ"
+        v_skill = None
+        if skill_note.exists():
+            m = re.search(r'#let template-version = "([^"]*)"', skill_note.read_text(encoding="utf-8"))
+            v_skill = m.group(1) if m else None
+        if v_skill and v_skill != manifest["template_version"]:
+            print(f"[restore] 提示：包的模板版本 {manifest['template_version']} ≠ 技能的 {v_skill}，"
+                  "恢复后先跑一次 doctor 按提示补")
+    if not manifest.get("with_assets", True) or not n_assets:
+        print("[restore] 包里没有 assets/：笔记里的图片会缺，把源项目的 assets/ 拷到项目根目录下")
+
+    if no_state:
+        print("[restore] --no-state：没登记笔记位置、没写回已收录清单")
+    else:
+        st = load_state()
+        owner = st.get("notes_root")
+        incoming = manifest.get("collected_notes") or []
+        other = (st.get("collected_notes") and owner
+                 and Path(owner).expanduser().resolve() != target)
+        if other and not force:
+            print(f"[restore] 本机已登记另一个笔记项目（{owner}）并记着它的收录清单，没有覆盖。",
+                  file=sys.stderr)
+            print("[restore] 确实要用这个包的状态：加 --force；只想解包不动状态：加 --no-state",
+                  file=sys.stderr)
+        else:
+            st["notes_root"] = str(target)
+            if incoming:
+                st["collected_notes"] = sorted(set(incoming))
+            if manifest.get("last_collection"):
+                st["last_collection"] = manifest["last_collection"]
+            if manifest.get("volumes"):
+                st["volumes"] = manifest["volumes"]
+            save_state(st)
+            print(f"[restore] 笔记位置已登记：{target}")
+            print(f"[restore] 已收录清单已写回：{len(incoming)} 篇"
+                  "——之后 sync 只把新笔记算作待编卷")
+    print("[restore] 下一步：装 Typst 0.13+ 与模板字体，然后"
+          f"\n    python {Path(__file__).name} --root {target} sync"
+          f"\n    python {Path(__file__).name} --root {target} graph --open")
+    return target
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=None, help="笔记项目目录；不传时用 TYPST_NOTES_HOME 或已登记的位置")
@@ -972,14 +1280,34 @@ def main():
         "--full", action="store_true",
         help="不按卷：把所有笔记编成一个整套合集（文件会很大，慎用）")
     sub.add_parser("doctor", help="体检项目里的模板拷贝是否落后于技能模板（已有项目开工前先跑）")
+    p_pack = sub.add_parser("pack", help="把笔记项目打成一个 zip（迁移到另一台电脑用）")
+    p_pack.add_argument("--out", default=None,
+                        help=f"输出 zip 路径（默认 <项目>/{PACK_PREFIX}-日期.zip）")
+    p_pack.add_argument("--with-pdfs", action="store_true",
+                        help="连编译好的 PDF 一起打包（合集动辄几百 MB）")
+    p_pack.add_argument("--all", action="store_true",
+                        help="整个项目都打（含编译产物与临时文件）")
+    p_pack.add_argument("--no-assets", action="store_true",
+                        help="不打 assets/（素材另拷时用；目标机器上图片会缺）")
+    p_restore = sub.add_parser("restore", help="解开 pack 的包：还原笔记、登记位置、写回已收录清单")
+    p_restore.add_argument("zip", help="pack 生成的 zip")
+    p_restore.add_argument("--into", default=None, help="解到哪个目录（默认当前目录下与包同名的新目录）")
+    p_restore.add_argument("--force", action="store_true",
+                           help="目标目录非空也往里写；本机登记着别的项目时用它确认接管状态")
+    p_restore.add_argument("--no-state", action="store_true",
+                           help="只解包：不登记笔记位置、不写回已收录清单")
     args = ap.parse_args()
 
-    # root / bump 不依赖 --root（root 管的就是位置本身，bump 读状态文件）
+    # root / bump / restore 不依赖 --root
+    # （root 管的就是位置本身；bump 读状态文件；restore 的落点是 --into）
     if args.cmd == "root":
         cmd_root(args.path)
         return
     if args.cmd == "bump":
         cmd_bump()
+        return
+    if args.cmd == "restore":
+        cmd_restore(args.zip, args.into, args.force, args.no_state)
         return
 
     root = resolve_root(args.root)
@@ -994,6 +1322,8 @@ def main():
         cmd_collect(root, full=args.full)
     elif args.cmd == "doctor":
         cmd_doctor(root)
+    elif args.cmd == "pack":
+        cmd_pack(root, args.out, args.with_pdfs, args.all, args.no_assets)
     else:
         cmd_mindmap(root, args.open)
 

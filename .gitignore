@@ -8,3 +8,9 @@ mindmap.md
 
 # 知识图谱的逐篇 PDF（点击笔记节点跳转用）
 notes-pdf/
+
+# 打包迁移的笔记包（pack 生成，动辄几百 MB）
+笔记包-*.zip
+
+# 在技能目录里跑 scripts/notes_db.py 的副产品
+__pycache__/

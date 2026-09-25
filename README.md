@@ -85,6 +85,18 @@ python scripts/notes_db.py graph --open
 python scripts/notes_db.py collect
 ```
 
+换台电脑接着用：`pack` 把项目打成一个 zip，`restore` 在目标机器上解开。
+
+```bash
+# 源机器：模板核心文件 + notes/ + assets/ + 打包清单，不含编译产物（合集太大）
+# 素材能另外拷就加 --no-assets，包从几百 MB 降到十几 MB
+python scripts/notes_db.py pack
+
+# 目标机器：解包 + 登记笔记位置 + 写回「已收录清单」（不写回的话 sync 会把
+# 老笔记当成未收录，一口气编出十几卷）
+python scripts/notes_db.py restore 笔记包-20260925.zip --into D:/我的笔记
+```
+
 写一篇新笔记：在 `notes/` 下新建文件，先写 `#note-header(…)`，正文从 `==` 起。
 
 要求 Typst 0.13+（用到的最新语法是 0.13 引入的 `first-line-indent` 配置；
