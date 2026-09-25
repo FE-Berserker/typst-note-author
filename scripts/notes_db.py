@@ -6,11 +6,13 @@
 子命令（--root 指向笔记项目目录；不传时依次取：环境变量 TYPST_NOTES_HOME >
 状态文件里登记的位置 > 当前目录）：
   sync      扫描 notes/*.typ 的 note-header（标题/日期/标签/状态/来源/摘要）
-            与节标题（== / ===），全量重建 notes.db；同时对比上次合集收录的
-            清单，自上次合集新增满 20 篇时自动创建合集（合集-日期.pdf）
-  collect   立即编译一次合集：先按当前笔记自动重写 collection.typ 的
-            include 列表（AUTO-INCLUDE 标记段内），再 typst compile，计数归零。
-            没有 AUTO 标记段说明是手工维护模式，include 不自动改
+            与节标题（== / ===），全量重建 notes.db；同时对比往期合集收录的
+            清单，未收录的笔记攒满 20 篇就自动编一卷（合集-日期-卷NN.pdf）
+  collect   立即编一卷：把当前**未收录**的笔记（至多 20 篇）写进 collection.typ
+            的 include 列表（AUTO-INCLUDE 标记段内），再 typst compile，卷号递增。
+            已收录进往期合集的笔记不会再进新卷，单卷体积因此不会一直长下去。
+            没有 AUTO 标记段说明是手工维护模式，include 不自动改；
+            --full 例外：把全部笔记编成一个整套合集（文件大，慎用）
   graph     从 notes.db 生成 graph.html——交互式知识图谱（vis-network 力导向图）：
             关键词为节点、同一篇笔记出现过的关键词互相关联（共现边），
             节点大小 = 关联笔记数；可拖动重排、缩放、点击高亮、搜索定位，
@@ -21,9 +23,9 @@
             第一次为用户建笔记项目时先问清存哪里，登记一次，
             之后所有子命令不带 --root 就默认用这个位置
   bump      已废弃（保留只为兼容旧指令）：计数不再手动记，由 sync 对比
-            上次合集收录的清单自动统计
+            往期合集收录的清单自动统计
 
-状态文件：~/.typst-note-author/state.json（存储位置、计数器、上次合集日期）。
+状态文件：~/.typst-note-author/state.json（存储位置、已收录清单、历卷记录）。
 依赖：Python 3.8+（仅标准库）。HTML 视图优先用项目内 assets/vendor/ 的
 本地渲染库（vis-network / markmap），缺件时回落 CDN（需联网）；
 图数据本身已内嵌在 HTML 里。
@@ -53,7 +55,7 @@ PDF_DIR_NAME = "notes-pdf"  # 逐篇编译的 PDF，供知识图谱点击跳转
 # ---- 技能的持久状态（跨会话记住存储位置与计数器）----
 # 环境变量 TYPST_NOTES_HOME 优先于状态文件；两者都没有时 --root 才落到当前目录
 ENV_VAR = "TYPST_NOTES_HOME"
-COLLECT_EVERY = 20  # 每新建多少篇笔记自动编译一次合集
+COLLECT_EVERY = 20  # 一卷收录多少篇：未收录的笔记攒够这个数就自动编一卷
 STATE_DIR = Path.home() / ".typst-note-author"
 STATE_FILE = STATE_DIR / "state.json"
 
@@ -270,20 +272,26 @@ def cmd_sync(root):
         print("[sync] 没扫到笔记：确认 --root 指向的目录下有 notes/*.typ")
         return notes
 
-    # 自上次合集以来新增了多少篇：与状态里记的「上次合集收录清单」对账。
+    # 还有多少篇没进过合集：与状态里记的「往期合集收录清单」对账。
     # 计数从这里来，不靠手动 bump——建笔记时谁都不用记着计数这件事。
-    st = load_state()
-    collected = set(st.get("collected_notes", []))
-    pending = [fname for fname, _h, _s in notes if fname not in collected]
-    if len(pending) >= COLLECT_EVERY:
-        print(f"[sync] 自上次合集已新增 {len(pending)} 篇（阈值 {COLLECT_EVERY}）——自动创建合集")
+    # 攒够一卷就编一卷，编完接着数：一次 sync 之后未收录的必定不足一卷。
+    all_names = [fname for fname, _h, _s in notes]
+    while True:
+        collected = set(load_state().get("collected_notes", []))
+        pending = [n for n in all_names if n not in collected]
+        if len(pending) < COLLECT_EVERY:
+            print(f"[sync] 未收录 {len(pending)} 篇，距下一卷还有 "
+                  f"{COLLECT_EVERY - len(pending)} 篇")
+            return notes
+        print(f"[sync] 未收录 {len(pending)} 篇（一卷 {COLLECT_EVERY} 篇）——自动编卷")
         try:
-            cmd_collect(root)
+            auto = cmd_collect(root)
         except SystemExit:
             print("[sync] 合集编译失败：处理上面的报错后手动跑一次 collect", file=sys.stderr)
-    else:
-        print(f"[sync] 距下次自动合集还有 {COLLECT_EVERY - len(pending)} 篇")
-    return notes
+            return notes
+        if not auto:
+            # 手工维护模式：include 列表不由我们决定，编一次就够，别再循环
+            return notes
 
 
 # ============================================================
@@ -841,38 +849,83 @@ def cmd_root(path):
 
 AUTO_BEGIN = "// ---- AUTO-INCLUDE BEGIN ----"
 AUTO_END = "// ---- AUTO-INCLUDE END ----"
+VOLUME_RE = re.compile(r"合集-\d{8}-卷(\d+)\.pdf$")
 
 
-def auto_includes(root):
-    """把 collection.typ 的 AUTO-INCLUDE 标记段重写为当前 notes/*.typ 的
-    include 列表（按文件名排序）。没有标记段＝手工维护模式，不动并返回 False。"""
+def next_volume_no(root):
+    """下一个卷号：取目录里 合集-日期-卷NN.pdf 的最大号 +1（没有卷就是 1）。
+
+    不把卷号存进状态：目录里有哪些卷就是哪些卷，手工改了文件名也不会串号。
+    """
+    nums = [int(m.group(1))
+            for m in (VOLUME_RE.search(p.name) for p in root.glob("合集-*-卷*.pdf"))
+            if m]
+    return max(nums) + 1 if nums else 1
+
+
+def auto_includes(root, names):
+    """把 collection.typ 的 AUTO-INCLUDE 标记段重写成本卷的 include 列表
+    （按文件名排序，排序即卷内顺序）。没有标记段＝手工维护模式，不动并返回 False。"""
     col = root / "collection.typ"
     text = col.read_text(encoding="utf-8")
     if AUTO_BEGIN not in text or AUTO_END not in text:
         return False
-    notes_dir = root / "notes"
-    names = sorted(p.name for p in notes_dir.glob("*.typ")) if notes_dir.is_dir() else []
     block = AUTO_BEGIN + "\n" + "\n\n".join(
-        f'#include "notes/{n}"' for n in names) + "\n" + AUTO_END
+        f'#include "notes/{n}"' for n in sorted(names)) + "\n" + AUTO_END
     pattern = re.compile(re.escape(AUTO_BEGIN) + r".*?" + re.escape(AUTO_END), re.S)
     col.write_text(pattern.sub(lambda _m: block, text, count=1), encoding="utf-8")
     return True
 
 
-def cmd_collect(root):
+def cmd_collect(root, full=False):
+    """编一卷：只收还没进过合集的笔记（一卷至多 COLLECT_EVERY 篇）。
+
+    收完把清单**累加**进状态——已进过往期合集的笔记不会再次进新卷，所以单卷
+    体积稳定在一卷的量级，不会随着笔记总数越编越厚。full=True 例外：全部笔记
+    编成一个整套合集（沿用旧行为，几百篇就是几百 MB，慎用）。
+    返回是否接管了 include 列表（AUTO 标记段在，即非手工维护模式）。
+    """
     col = root / "collection.typ"
     if not col.exists():
         print(f"[collect] {col} 不存在——先按技能第 1 步把 template/ 搭到这个目录", file=sys.stderr)
         sys.exit(1)
-    if auto_includes(root):
-        print("[collect] include 列表已按当前笔记更新（AUTO-INCLUDE 段）")
+
+    notes_dir = root / "notes"
+    all_typ = sorted(p.name for p in notes_dir.glob("*.typ")) if notes_dir.is_dir() else []
+    all_names = [fname for fname, _h, _s in scan_notes(root)]
+    # notes/ 里没有 note-header 的文件不是笔记（辅助文件），每卷都要跟着一起编
+    helpers = [n for n in all_typ if n not in set(all_names)]
+
+    st = load_state()
+    # 已删掉的笔记顺手从清单里剔掉，状态文件不积死名字
+    collected = set(st.get("collected_notes", [])) & set(all_names)
+    pending = [n for n in all_names if n not in collected]
+    if full:
+        picked = all_names
     else:
-        print("[collect] collection.typ 没有 AUTO-INCLUDE 标记（手工维护模式）：include 不自动改，确认新笔记都加进去了")
+        picked = pending[:COLLECT_EVERY]
+        if not picked:
+            print(f"[collect] 没有未收录的笔记（{len(all_names)} 篇都在往期合集里）——不编卷")
+            print("[collect] 要把全部笔记重编成整套：collect --full（文件会很大）")
+            return False
+        if len(pending) > len(picked):
+            print(f"[collect] 未收录 {len(pending)} 篇，本卷收 {len(picked)} 篇，"
+                  f"余下 {len(pending) - len(picked)} 篇留到下一卷")
+
+    auto = auto_includes(root, helpers + picked)
+    if auto:
+        print(f"[collect] include 列表已重写为本卷 {len(picked)} 篇（AUTO-INCLUDE 段）")
+    else:
+        print("[collect] collection.typ 没有 AUTO-INCLUDE 标记（手工维护模式）：include 不自动改，"
+              "确认本卷的笔记都加进去了")
     typst = shutil.which("typst")
     if not typst:
         print("[collect] 找不到 typst 命令，确认已安装并在 PATH 里", file=sys.stderr)
         sys.exit(1)
-    out = root / f"合集-{date.today():%Y%m%d}.pdf"
+    if full:
+        out = root / f"合集-{date.today():%Y%m%d}.pdf"
+    else:
+        out = root / f"合集-{date.today():%Y%m%d}-卷{next_volume_no(root):02d}.pdf"
     r = subprocess.run(
         [typst, "compile", str(col), str(out)],
         cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -880,20 +933,24 @@ def cmd_collect(root):
     if r.returncode != 0:
         print(f"[collect] 合集编译失败：\n{(r.stderr or r.stdout)[:2000]}", file=sys.stderr)
         sys.exit(1)
-    # 记下这次合集收录了哪些笔记，作为下次「新增篇数」的基线
-    notes_dir = root / "notes"
-    st = load_state()
-    st["collected_notes"] = sorted(
-        p.name for p in notes_dir.glob("*.typ")) if notes_dir.is_dir() else []
+    # 收录清单只增不减：下次「未收录」接着往后数，已经编进卷里的不再进新卷
+    st["collected_notes"] = sorted(collected | set(picked))
     st["last_collection"] = f"{date.today():%Y-%m-%d}"
+    st.setdefault("volumes", []).append(
+        {"file": out.name, "date": f"{date.today():%Y-%m-%d}", "count": len(picked)}
+    )
     save_state(st)
-    print(f"[collect] 合集已生成：{out}（收录 {len(st['collected_notes'])} 篇，计数已归零）")
+    left = len(all_names) - len(st["collected_notes"])
+    print(f"[collect] 合集已生成：{out}")
+    print(f"[collect] 本卷 {len(picked)} 篇；累计已收录 {len(st['collected_notes'])}/{len(all_names)} 篇"
+          + (f"，还有 {left} 篇未收录" if left else "，全部笔记都已进过合集"))
+    return auto
 
 
 def cmd_bump():
     print("[bump] bump 已移除：合集计数现在由 sync 自动统计")
-    print("[bump] 建/删笔记后照常 sync，自上次合集新增满 "
-          f"{COLLECT_EVERY} 篇时 sync 会自动创建合集")
+    print(f"[bump] 建/删笔记后照常 sync，未收录的笔记攒满 "
+          f"{COLLECT_EVERY} 篇时 sync 会自动编一卷")
 
 
 def main():
@@ -909,7 +966,11 @@ def main():
     p_root = sub.add_parser("root", help="查询/登记笔记项目位置（不带参数=查询）")
     p_root.add_argument("path", nargs="?", help="登记的目录路径")
     sub.add_parser("bump", help="（已废弃）计数改由 sync 自动统计")
-    sub.add_parser("collect", help="立即编译一次合集：自动更新 include 列表并归零计数")
+    p_collect = sub.add_parser(
+        "collect", help=f"编一卷：收录未收录的笔记（至多 {COLLECT_EVERY} 篇），卷号递增")
+    p_collect.add_argument(
+        "--full", action="store_true",
+        help="不按卷：把所有笔记编成一个整套合集（文件会很大，慎用）")
     sub.add_parser("doctor", help="体检项目里的模板拷贝是否落后于技能模板（已有项目开工前先跑）")
     args = ap.parse_args()
 
@@ -930,7 +991,7 @@ def main():
     elif args.cmd == "graph":
         cmd_graph(root, args.open, not args.no_pdf)
     elif args.cmd == "collect":
-        cmd_collect(root)
+        cmd_collect(root, full=args.full)
     elif args.cmd == "doctor":
         cmd_doctor(root)
     else:

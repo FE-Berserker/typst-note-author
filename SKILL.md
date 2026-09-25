@@ -30,11 +30,11 @@ description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/
 | --- | --- | --- |
 | 「写 / 整理一篇笔记」 | 建 `notes/` 文件、写内容 | 不动 collection.typ、不改 single.typ、不编译合集、不出图谱 |
 | 「出这篇的 PDF」 | 改 single.typ 指向并编译 | 不动合集 |
-| 「入库 / 看知识图谱」 | doctor → sync → graph | 不动合集（除非 sync 报告满 20 篇自动触发） |
-| 「出合集 / 成册」 | collect | — |
+| 「入库 / 看知识图谱」 | doctor → sync → graph | 不动合集（除非 sync 报告未收录满 20 篇自动编卷） |
+| 「出合集 / 成册」 | collect（一卷；整套用 collect --full） | — |
 
-合集只由两件事触发：**sync 检测到自上次合集新增满 20 篇**（自动 collect），
-或**用户明确要**。不要为了「顺便验证」去编译合集或做其它未要求的导出——
+合集只由两件事触发：**sync 检测到未收录的笔记满 20 篇**（自动 collect 编一卷），
+或**用户明确要**。已经进过往期合集的笔记不会再进新卷，单卷因此不会越编越厚。不要为了「顺便验证」去编译合集或做其它未要求的导出——
 想做请求之外的事，先向用户说明并征得同意。
 
 ### 1. 搭脚手架
@@ -134,7 +134,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> doctor
 ```bash
 typst compile single.typ 笔记.pdf          # 单篇（改 single.typ 里 include 的那一行）
 typst watch single.typ 笔记.pdf            # 单篇：存盘即重编译，调版式时挂着看
-typst compile collection.typ 我的笔记.pdf   # 汇总成册
+typst compile collection.typ 我的笔记.pdf   # 汇总成册（include 列表＝当前这一卷）
 ```
 
 拿去打印 / 复习时改两个开关再编译（`note.typ` 的 `note-hide-notes = true`
@@ -148,20 +148,28 @@ typst compile collection.typ 我的笔记.pdf   # 汇总成册
 New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非 Windows 系统
 需要思源黑体/思源宋体兜底（字体链已配好）。
 
-### 4. 编册（满 20 篇自动出合集）
+### 4. 编册（满 20 篇编一卷，已收录的不再重复进卷）
 
-合集**不由人顺手触发**：只在「自上次合集后新增满 20 篇」（sync 自动检测）
-或用户明确要合集时才做。计数由 sync 对比上次合集收录的清单自动统计，
-**建新笔记时不需要做任何与合集相关的事**：
+合集**不由人顺手触发**：只在「未收录的笔记攒满 20 篇」（sync 自动检测）
+或用户明确要合集时才做。**一卷只装新笔记**——已经进过往期合集的笔记不会
+再被收进新卷，所以单卷体积稳定在一卷的量级（把全部笔记堆进一个 PDF，
+笔记攒到几百篇就是几百 MB）。**建新笔记时不需要做任何与合集相关的事**：
 
 - 建新笔记**不用改 `collection.typ`**：include 列表由 `collect` 自动重写
   （AUTO-INCLUDE 标记段内，按文件名排序；笔记文件带日期前缀
-  `20260920-ANSYS-拓扑优化.typ`，排序即册内顺序）。想手工控制顺序或取舍，
-  删掉那两行 BEGIN/END 标记，collect 从此不动它（出合集前自己加全）；
-- 每次 `sync` 报告「距下次自动合集还有 N 篇」；满 **20 篇**自动 `collect`：
-  更新 include → `typst compile collection.typ` 生成 `合集-日期.pdf` →
-  收录清单归档、计数归零。编译失败会把原因带出来，处理后手动重跑；
-- 用户随时要合集：直接跑 `collect` 子命令。
+  `20260920-ANSYS-拓扑优化.typ`，排序即卷内顺序）。想手工控制顺序或取舍，
+  删掉那两行 BEGIN/END 标记，collect 从此不动它（出卷前自己加全）；
+- 每次 `sync` 报告「未收录 N 篇，距下一卷还有 M 篇」；未收录满 **20 篇**
+  自动 `collect`：更新 include → `typst compile collection.typ` 生成
+  `合集-日期-卷NN.pdf` → 本卷篇目累加进「已收录清单」。一次 sync 会连编
+  数卷，直到未收录不足 20 篇（余下的留到下次）；编译失败会把原因带出来，
+  处理后手动重跑；
+- 卷号接在目录里已有的卷后面（`合集-日期-卷NN.pdf` 的最大号 +1），
+  文件名即卷号，不会重名覆盖；
+- 用户随时要合集：`collect` 编一卷当前未收录的（不足 20 篇也照编）；
+  要一次把全部笔记编成整套，用 `collect --full`（文件很大，慎用）。
+- 已收录清单记在 `~/.typst-note-author/state.json`，**只跟踪一个笔记项目**
+  （`notes_root` 登记的那个）。换项目干活时留意：`collect` 只对登记的项目有意义。
 
 ### 5. 关键词库与知识图谱
 
@@ -215,7 +223,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动合集检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，自动维护 include） |
+| `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动编卷检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，一卷 20 篇、只收未收录的、自动维护 include） |
 | `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的色值、图形样式同步；改 `colors.typ` / `figstyle.typ` 后跑 |
 
 ## 四条必须记住的约定

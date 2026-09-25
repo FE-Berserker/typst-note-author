@@ -78,8 +78,10 @@ python scripts/notes_db.py root D:/my-notes
 python scripts/notes_db.py sync
 python scripts/notes_db.py graph --open
 
-# 合集：sync 自动统计「自上次合集新增的笔记」，满 20 篇自动编译合集-日期.pdf
-# （include 列表由 AUTO-INCLUDE 段自动维护，建笔记不用碰 collection.typ）；随时可手动出
+# 合集按卷走：未收录的笔记攒满 20 篇，sync 自动编一卷 合集-日期-卷NN.pdf
+# （已收录的笔记不再进新卷，单卷不会越编越厚；include 列表由 AUTO-INCLUDE 段
+#  自动维护，建笔记不用碰 collection.typ）。collect 随时手动编一卷当前未收录的，
+# collect --full 才把全部笔记编成一个整套合集（文件很大）
 python scripts/notes_db.py collect
 ```
 
