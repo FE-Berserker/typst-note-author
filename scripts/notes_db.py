@@ -26,9 +26,11 @@
             notes/*.typ + assets/ + 打包清单；编译产物（PDF、notes.db、图谱）
             默认不收——它们在目标机器上重新生成即可，而合集 PDF 动辄几百 MB。
             --with-pdfs 连编译好的 PDF 一起收，--all 连临时文件一起收
-  restore   解开 pack 打的包：还原笔记到目标目录、登记笔记位置、并把包里的
-            「已收录清单」写回状态——不这么做的话目标机器上的 sync 会把所有
-            老笔记当成未收录，一次编出一堆卷
+  restore   解开 pack 打的包：还原笔记到目标目录、登记笔记位置，然后**自动按
+            20 篇一卷把导入的笔记编出来**（包里的合集 PDF 默认没跟过来，所以在
+            新机器上重新编）。收录清单按本机自己的账算：本机原有已收录的继续
+            认账，导进来还没收录的排进新卷；卷号取两边往期卷的最大号 +1，
+            不跟任何一边的旧卷撞号。--no-collect 只解包不编卷
   bump      已废弃（保留只为兼容旧指令）：计数不再手动记，由 sync 对比
             往期合集收录的清单自动统计
 
@@ -857,17 +859,24 @@ def cmd_root(path):
 
 AUTO_BEGIN = "// ---- AUTO-INCLUDE BEGIN ----"
 AUTO_END = "// ---- AUTO-INCLUDE END ----"
-VOLUME_RE = re.compile(r"合集-\d{8}-卷(\d+)\.pdf$")
+VOLUME_RE = re.compile(r"^合集-(\d{4})(\d{2})(\d{2})-卷(\d+)\.pdf$")
 
 
-def next_volume_no(root):
-    """下一个卷号：取目录里 合集-日期-卷NN.pdf 的最大号 +1（没有卷就是 1）。
+def next_volume_no(root, st=None):
+    """下一个卷号：目录里 合集-日期-卷NN.pdf 的最大号 +1（没有卷就是 1）。
 
-    不把卷号存进状态：目录里有哪些卷就是哪些卷，手工改了文件名也不会串号。
+    卷号也从状态/打包清单里记的往期卷算：迁移到新机器时往期 PDF 没跟过来
+    （pack 默认不收编译产物），只数目录的话卷号会从 01 重来、跟旧机器撞号。
     """
-    nums = [int(m.group(1))
-            for m in (VOLUME_RE.search(p.name) for p in root.glob("合集-*-卷*.pdf"))
-            if m]
+    nums = []
+    for p in root.glob("合集-*-卷*.pdf"):
+        m = VOLUME_RE.match(p.name)
+        if m:
+            nums.append(int(m.group(4)))
+    for v in ((st if st is not None else load_state()).get("volumes") or []):
+        m = VOLUME_RE.match(str(v.get("file", "")))
+        if m:
+            nums.append(int(m.group(4)))
     return max(nums) + 1 if nums else 1
 
 
@@ -933,7 +942,7 @@ def cmd_collect(root, full=False):
     if full:
         out = root / f"合集-{date.today():%Y%m%d}.pdf"
     else:
-        out = root / f"合集-{date.today():%Y%m%d}-卷{next_volume_no(root):02d}.pdf"
+        out = root / f"合集-{date.today():%Y%m%d}-卷{next_volume_no(root, st):02d}.pdf"
     r = subprocess.run(
         [typst, "compile", str(col), str(out)],
         cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -968,8 +977,9 @@ def cmd_bump():
 # 编译产物（合集与单篇 PDF、notes.db、graph.html、mindmap.html、notes-pdf/）
 # 都能在目标机器上重新生成，而它们往往比笔记本身大两个数量级——合集一个
 # 文件就几百 MB，默认收进去，包就没法传了。
-# 打包清单（note-pack.json）里带着「已收录清单」：restore 把它写回状态，
-# 目标机器上的 sync 才不会把老笔记当成未收录、一口气编出一堆卷。
+# 打包清单（note-pack.json）带着源机器的收录进度与往期卷号：前者只是记录，
+# 后者用来让目标机器的新卷号接在两边旧卷之后——导入的笔记在那台机器上算未收录，
+# 按 20 篇一卷重新编（见 cmd_restore）。
 # ============================================================
 
 PACK_PREFIX = "笔记包"
@@ -1000,7 +1010,7 @@ def pack_readme(manifest):
   与 `.gitignore`：模板核心文件；
 - `notes/*.typ`：全部笔记正文，共 **{manifest["note_count"]} 篇**；
 - `assets/`：笔记引用的图片与素材{"" if manifest["with_assets"] else "（**本次没打进来**，见下）"}；
-- `note-pack.json`：打包清单（来源路径、篇数、已收录清单、模板版本）。
+- `note-pack.json`：打包清单（来源路径、篇数、源机器的收录进度与往期卷号、模板版本）。
 
 {pdfs_line}
 
@@ -1016,19 +1026,14 @@ def pack_readme(manifest):
    ```
 
    装技能的目的只是拿到 `notes_db.py`；不装也行——把包解开就能用
-   `typst compile single.typ 笔记.pdf` 编译，只是没有入库/图谱/自动合集。
-3. 恢复之后重建生成物：
+   `typst compile single.typ 笔记.pdf` 编译，只是没有入库/图谱/自动编卷。
+3. `restore` 会自己往下做：登记笔记位置 → 重建 notes.db → **按 {COLLECT_EVERY} 篇一卷
+   把导入的笔记编出来**（往期合集 PDF 没在包里，所以在这台机器上重新编；要逐卷编译，
+   可能跑一阵，中断了再跑一次 sync 会接着编）。不想现在编就加 `--no-collect`。
 
-   ```bash
-   python <技能目录>/scripts/notes_db.py --root D:/我的笔记 sync       # 重建 notes.db
-   python <技能目录>/scripts/notes_db.py --root D:/我的笔记 graph --open # 重建知识图谱
-   ```
-
-`restore` 会把包里的「已收录清单」写回状态，所以 `sync` 不会把老笔记当成
-未收录、又编一遍卷；之后攒够 20 篇新笔记才会自动编下一卷。
-
-{"" if manifest["with_assets"] else "## 注意：这个包不含 assets/\n\n打包时用了 `--no-assets`（或 assets 为空）。笔记里的图片在目标机器上会缺，"
- "需要把源项目的 `assets/` 目录单独拷过去，放在项目根目录下。\n"}
+这台机器上原本就有笔记时，两边的账各算各的：本机已收录的继续认账，导进来还没收录的
+排进新的卷；新卷号接在「本机往期卷」和「包里往期卷」的最大号之后，两边都不撞号。
+之后攒够 20 篇新笔记，还是照常自动编下一卷。
 """
 
 
@@ -1091,16 +1096,27 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
         out = root / f"{PACK_PREFIX}-{date.today():%Y%m%d}.zip"
 
     st = load_state()
-    # 已收录清单只跟登记的那个项目对得上：打包别的项目时不带清单，
-    # 免得目标机器拿着另一个项目的清单对账（那会把这篇项目的笔记全算成新笔记）
+    # 收录进度只跟登记的那个项目对得上：打包别的项目时不带它，
+    # 免得清单里记的是另一个项目的篇目（那只是记录，但记错不如不记）
     owner = st.get("notes_root")
     same_project = (not owner) or Path(owner).expanduser().resolve() == root.resolve()
     if not same_project:
-        print(f"[pack] 注意：状态里登记的是另一个项目（{owner}），本包不带已收录清单——"
-              "到目标机器上第一次 sync 会把这里的笔记都当成未收录", file=sys.stderr)
+        print(f"[pack] 注意：状态里登记的是另一个项目（{owner}），本包不带它的收录进度记录"
+              "（那条只作参考，不影响目标机器编卷）", file=sys.stderr)
     notes = scan_notes(root)
     tmpl = re.search(r'#let template-version = "([^"]*)"',
                      (root / "note.typ").read_text(encoding="utf-8"))
+    # 往期卷基线：状态里记的 + 目录里实际存在的（手工切出来的卷状态里没有，
+    # 但卷号得算上，不然目标机器上会从 01 重来）
+    volumes = list(st.get("volumes", [])) if same_project else []
+    known = {v.get("file") for v in volumes}
+    for name in (p.name for p in sorted(root.glob("合集-*-卷*.pdf"))):
+        m = VOLUME_RE.match(name)
+        if m and name not in known:
+            volumes.append({"file": name,
+                            "date": f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
+                            "count": None})
+    volumes.sort(key=lambda v: str(v.get("file")))
     manifest = {
         "tool": "typst-note-author",
         "manifest": PACK_MANIFEST,
@@ -1114,8 +1130,11 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
         # 迁移的关键：目标机器靠它认账，不把老笔记当新笔记重编卷
         "collected_notes": sorted(st.get("collected_notes", [])) if same_project else [],
         "last_collection": st.get("last_collection") if same_project else None,
-        "volumes": st.get("volumes", []) if same_project else [],
-        "note": "collected_notes 是打包时的「已收录清单」，restore 会写回目标机器的状态",
+        "volumes": volumes,
+        "next_volume": max((int(VOLUME_RE.match(v["file"]).group(4))
+                            for v in volumes if VOLUME_RE.match(v["file"])), default=0) + 1,
+        "note": "collected_notes 只记录源机器的收录进度；restore 不用它记账——"
+                "导入的笔记在目标机器上按 20 篇一卷重新编，卷号接在 volumes 的后面",
     }
 
     included, skipped = pack_members(root, with_pdfs, everything)
@@ -1157,11 +1176,13 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
         print(f"[pack] 素材占了 {raw_assets / 1048576:.0f} MB：素材能单独拷（U 盘、云盘）的话，"
               "用 --no-assets 出一个只有笔记的小包更快")
     if manifest["collected_notes"]:
-        print(f"[pack] 已收录清单随包带上：{len(manifest['collected_notes'])} 篇"
-              "（restore 会写回状态，目标机器不会把老笔记再编一遍卷）")
+        print(f"[pack] 收录进度（记录用）：源机器已收录 {len(manifest['collected_notes'])} 篇；"
+              f"目标机器上导入的笔记会按 {COLLECT_EVERY} 篇一卷重新编")
     else:
-        print("[pack] 包里没有已收录清单：目标机器上第一次 sync 会把全部笔记当成未收录，"
-              f"按 {COLLECT_EVERY} 篇一卷编出来")
+        print(f"[pack] 没有收录进度记录：目标机器上全部笔记都会按 {COLLECT_EVERY} 篇一卷编")
+    if volumes:
+        print(f"[pack] 往期卷基线随包带上：{len(volumes)} 卷，目标机器的新卷接在 "
+              f"卷{manifest['next_volume']:02d} 之后（往期 PDF 本身默认不打包）")
     if no_assets:
         print("[pack] --no-assets：没打素材，目标机器上笔记里的图片会缺")
     if not with_pdfs and not everything:
@@ -1188,7 +1209,29 @@ def _inside(target, dest):
         return False
 
 
-def cmd_restore(zip_path, into=None, force=False, no_state=False):
+def merge_restored_state(target, manifest, st):
+    """把刚解开的包并进本机状态，返回本机继续认账的已收录篇数。
+
+    收录清单按**本机自己的账**算，不采用包里的：包里的笔记在这台机器上算未收录，
+    要按 20 篇一卷重新编（迁移的约定）；本机原本就收录过的笔记继续认账，所以两台
+    机器都有的笔记不会被重编一遍（新机器上已经有部分笔记时，账不会乱）。
+    往期卷把两边的并起来，新卷号接在最大值后面——不跟任何一边的旧卷撞号。
+    """
+    present = {n for n, _h, _s in scan_notes(target)}
+    kept = sorted(n for n in st.get("collected_notes", []) if n in present)
+    st["notes_root"] = str(target)
+    st["collected_notes"] = kept
+    volumes = {v.get("file"): v for v in st.get("volumes") or []
+               if isinstance(v, dict) and v.get("file")}
+    for v in manifest.get("volumes") or []:
+        if isinstance(v, dict) and v.get("file"):
+            volumes.setdefault(v["file"], v)
+    st["volumes"] = [volumes[k] for k in sorted(volumes)]
+    save_state(st)
+    return len(kept)
+
+
+def cmd_restore(zip_path, into=None, force=False, no_state=False, no_collect=False):
     zp = Path(zip_path).expanduser()
     if not zp.is_file():
         print(f"[restore] 找不到包：{zp}", file=sys.stderr)
@@ -1230,34 +1273,52 @@ def cmd_restore(zip_path, into=None, force=False, no_state=False):
     if not manifest.get("with_assets", True) or not n_assets:
         print("[restore] 包里没有 assets/：笔记里的图片会缺，把源项目的 assets/ 拷到项目根目录下")
 
+    merged = False
     if no_state:
-        print("[restore] --no-state：没登记笔记位置、没写回已收录清单")
+        print("[restore] --no-state：没登记笔记位置、没动收录清单，也不自动编卷")
     else:
         st = load_state()
         owner = st.get("notes_root")
-        incoming = manifest.get("collected_notes") or []
         other = (st.get("collected_notes") and owner
                  and Path(owner).expanduser().resolve() != target)
         if other and not force:
-            print(f"[restore] 本机已登记另一个笔记项目（{owner}）并记着它的收录清单，没有覆盖。",
+            print(f"[restore] 本机已登记另一个笔记项目（{owner}）并记着它的收录清单，没有动状态。",
                   file=sys.stderr)
-            print("[restore] 确实要用这个包的状态：加 --force；只想解包不动状态：加 --no-state",
+            print("[restore] 确认这台机器上就按这个包记账：加 --force；只想解包：加 --no-state",
                   file=sys.stderr)
         else:
-            st["notes_root"] = str(target)
-            if incoming:
-                st["collected_notes"] = sorted(set(incoming))
-            if manifest.get("last_collection"):
-                st["last_collection"] = manifest["last_collection"]
-            if manifest.get("volumes"):
-                st["volumes"] = manifest["volumes"]
-            save_state(st)
+            kept = merge_restored_state(target, manifest, st)
+            merged = True
+            present = [n for n, _h, _s in scan_notes(target)]
+            pending = [n for n in present if n not in set(st["collected_notes"])]
             print(f"[restore] 笔记位置已登记：{target}")
-            print(f"[restore] 已收录清单已写回：{len(incoming)} 篇"
-                  "——之后 sync 只把新笔记算作待编卷")
-    print("[restore] 下一步：装 Typst 0.13+ 与模板字体，然后"
-          f"\n    python {Path(__file__).name} --root {target} sync"
-          f"\n    python {Path(__file__).name} --root {target} graph --open")
+            print(f"[restore] 本机原有已收录笔记继续认账 {kept} 篇；待编 {len(pending)} 篇"
+                  f"（包里的笔记在这台机器上按未收录算，重新按 {COLLECT_EVERY} 篇一卷编）")
+            if st["volumes"]:
+                print(f"[restore] 往期卷并起来共 {len(st['volumes'])} 卷 → 新卷从 "
+                      f"卷{next_volume_no(target, st):02d} 起（不与任何一边的旧卷撞号）")
+    if not manifest.get("with_pdfs"):
+        print("[restore] 往期合集 PDF 不在包里（打包时没加 --with-pdfs）：要一起带过来，"
+              "在源机器上重新 pack --with-pdfs，或把 合集-*.pdf 单独拷到这个目录")
+
+    if merged and not no_collect:
+        before = {p.name for p in target.glob("合集-*-卷*.pdf")}
+        left = len([n for n, _h, _s in scan_notes(target) if n not in set(load_state()["collected_notes"])])
+        if left >= COLLECT_EVERY:
+            full, rem = divmod(left, COLLECT_EVERY)
+            print(f"[restore] 开始编卷：待编 {left} 篇 → {full} 卷"
+                  + (f"，余 {rem} 篇不足一卷、留着等下次" if rem else "")
+                  + "；要逐卷编译（可能跑一阵，中断了再跑一次 sync 会接着编）")
+        cmd_sync(target)
+        new = sorted(p.name for p in target.glob("合集-*-卷*.pdf") if p.name not in before)
+        if new:
+            print(f"[restore] 编出 {len(new)} 卷：" + "、".join(new[:6])
+                  + ("…" if len(new) > 6 else ""))
+    elif merged and no_collect:
+        print("[restore] --no-collect：没有自动编卷；之后跑一次 sync 就会按 "
+              f"{COLLECT_EVERY} 篇一卷接着编")
+    print("[restore] 目标机器上还要装 Typst 0.13+ 与模板字体；知识图谱随时用"
+          f" graph --open 重建")
     return target
 
 
@@ -1289,13 +1350,16 @@ def main():
                         help="整个项目都打（含编译产物与临时文件）")
     p_pack.add_argument("--no-assets", action="store_true",
                         help="不打 assets/（素材另拷时用；目标机器上图片会缺）")
-    p_restore = sub.add_parser("restore", help="解开 pack 的包：还原笔记、登记位置、写回已收录清单")
+    p_restore = sub.add_parser(
+        "restore", help="解开 pack 的包：还原笔记、登记位置，然后按 20 篇一卷把导入的笔记编出来")
     p_restore.add_argument("zip", help="pack 生成的 zip")
     p_restore.add_argument("--into", default=None, help="解到哪个目录（默认当前目录下与包同名的新目录）")
     p_restore.add_argument("--force", action="store_true",
                            help="目标目录非空也往里写；本机登记着别的项目时用它确认接管状态")
+    p_restore.add_argument("--no-collect", action="store_true",
+                           help="只解包与登记，不自动编卷（之后自己跑 sync 再编）")
     p_restore.add_argument("--no-state", action="store_true",
-                           help="只解包：不登记笔记位置、不写回已收录清单")
+                           help="只解包：不登记笔记位置、不动收录清单，也不编卷")
     args = ap.parse_args()
 
     # root / bump / restore 不依赖 --root
@@ -1307,7 +1371,7 @@ def main():
         cmd_bump()
         return
     if args.cmd == "restore":
-        cmd_restore(args.zip, args.into, args.force, args.no_state)
+        cmd_restore(args.zip, args.into, args.force, args.no_state, args.no_collect)
         return
 
     root = resolve_root(args.root)

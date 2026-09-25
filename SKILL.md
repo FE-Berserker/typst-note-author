@@ -32,7 +32,7 @@ description: 用 Typst 排中文学习笔记：笔记头（日期/标签/状态/
 | 「出这篇的 PDF」 | 改 single.typ 指向并编译 | 不动合集 |
 | 「入库 / 看知识图谱」 | doctor → sync → graph | 不动合集（除非 sync 报告未收录满 20 篇自动编卷） |
 | 「出合集 / 成册」 | collect（一卷；整套用 collect --full） | — |
-| 「打包 / 迁移 / 换电脑」 | pack（源机器）→ restore（目标机器） | 别对现有项目随手 restore：它会接管笔记位置与收录清单 |
+| 「打包 / 迁移 / 换电脑」 | pack（源机器）→ restore（目标机器，会按 20 篇一卷重新编） | 别对现有项目随手 restore：它会接管笔记位置并按新账编卷 |
 
 合集只由两件事触发：**sync 检测到未收录的笔记满 20 篇**（自动 collect 编一卷），
 或**用户明确要**。已经进过往期合集的笔记不会再进新卷，单卷因此不会越编越厚。不要为了「顺便验证」去编译合集或做其它未要求的导出——
@@ -220,19 +220,25 @@ python <技能目录>/scripts/notes_db.py --root <项目> pack
 python <技能目录>/scripts/notes_db.py --root <项目> pack --no-assets   # 素材另拷时出小包（十几 MB）
 python <技能目录>/scripts/notes_db.py --root <项目> pack --with-pdfs   # 连编译好的 PDF 一起带走
 
-# 目标机器：解包 + 登记笔记位置 + 写回「已收录清单」
+# 目标机器：解包 → 登记位置 → 自动按 20 篇一卷把导入的笔记编出来
 python <技能目录>/scripts/notes_db.py restore 笔记包-20260925.zip --into D:/我的笔记
 ```
 
-- **`restore` 写回已收录清单这一步不能省**：不做的话，目标机器上第一次
-  `sync` 会把全部老笔记算成未收录，一口气编出十几卷。清单就放在包里的
-  `note-pack.json`，手工迁移时照它补状态（或按包里的 `迁移说明.md` 走）；
-- 包里不含 PDF / `notes.db` / 图谱 HTML / `notes-pdf/`——到目标机器上
-  `sync` 与 `graph` 重新生成即可；`--no-assets` 的小包到那边要自己补 `assets/`；
-- 目标机器要装 Typst 0.13+ 与模板字体，技能本身从
-  github.com/FE-Berserker/typst-note-author 装；
-- `restore` 默认解到当前目录下与包同名的新目录；目录非空要 `--force`；
-  本机状态里登记着别的项目时也要 `--force` 才接管状态（否则只解包、不动状态）。
+**迁移后合集怎么算（这是约定，别自己改）**：
+
+- 往期合集 PDF 不打包，**导入的笔记在目标机器上算未收录，按 20 篇一卷重新编**；
+  `restore` 自己就会编（不用用户另外跑命令），`--no-collect` 可以推迟到你有空；
+- **卷号不从 01 重来**：新卷号 = max(目标机器已有的卷, 包里记的往期卷) + 1，
+  两边都不撞号（包里的 `note-pack.json` 的 `volumes` 就是给这个用的）；
+- **目标机器原本就有笔记时，两边的账各算各的**：本机已收录的继续认账，本机
+  还没收录的 + 导入的排进新卷一起编；本机自己的旧卷 PDF 原样不动；
+- 想连旧合集 PDF 一起搬：在源机器 `pack --with-pdfs`（包会大一个数量级）。
+
+其它细节：包里不含 `notes.db` / 图谱 HTML / `notes-pdf/`（目标机器上 `sync`、
+`graph` 重新生成）；`--no-assets` 的小包要在那边自己补 `assets/`；目标机器要装
+Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note-author 装；
+`restore` 默认解到当前目录下与包同名的新目录，目录非空要 `--force`，本机状态里
+登记着别的项目时也要 `--force` 才接管（否则只解包、不动账）。
 
 ## 模板文件一览
 

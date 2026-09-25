@@ -85,15 +85,16 @@ python scripts/notes_db.py graph --open
 python scripts/notes_db.py collect
 ```
 
-换台电脑接着用：`pack` 把项目打成一个 zip，`restore` 在目标机器上解开。
+换台电脑接着用：`pack` 把项目打成一个 zip，`restore` 在目标机器上解开并接着编卷。
 
 ```bash
 # 源机器：模板核心文件 + notes/ + assets/ + 打包清单，不含编译产物（合集太大）
 # 素材能另外拷就加 --no-assets，包从几百 MB 降到十几 MB
 python scripts/notes_db.py pack
 
-# 目标机器：解包 + 登记笔记位置 + 写回「已收录清单」（不写回的话 sync 会把
-# 老笔记当成未收录，一口气编出十几卷）
+# 目标机器：解包 + 登记笔记位置 + 自动按 20 篇一卷把导入的笔记编出来
+# （往期合集 PDF 没跟过来，所以在那边重新编；卷号接在两边往期卷之后，不从 01 重来；
+#   目标机器原本就有笔记时各算各的账，本机已收录的继续认账。--no-collect 可推迟编卷）
 python scripts/notes_db.py restore 笔记包-20260925.zip --into D:/我的笔记
 ```
 
