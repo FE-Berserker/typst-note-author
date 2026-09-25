@@ -14,10 +14,12 @@
    名字是 code-bracket，一用就编译失败，示例笔记没用到所以没人发现）。
    book 端不参与这项校验：它的 custom-box 路径走 bookly 自带的本地 SVG
    （code.svg / info.svg 那套），图标名规则不同，放一起比会误报。
-   本地没有 heroic 包缓存时（首次编译前）跳过这项。
+   本地没有 heroic 包缓存时（首次编译前）跳过这项；
+4. 代码高亮主题——两端 template/code-theme.tmTheme 是同一份文件，
+   逐字节相同。
 
 任一漂移即以非零码退出并打印差异。改任一端 colors.typ / figstyle.typ /
-boxes.typ 后跑：
+boxes.typ / code-theme.tmTheme 后跑：
 
   python scripts/check_sync.py
 """
@@ -39,6 +41,8 @@ NOTE_FIG = NOTE_ROOT / "template" / "figstyle.typ"
 BOOK_FIG = BOOK_ROOT / "template" / "figstyle.typ"
 NOTE_BOXES = NOTE_ROOT / "template" / "boxes.typ"
 BOOK_BOXES = BOOK_ROOT / "template" / "boxes.typ"
+NOTE_THEME = NOTE_ROOT / "template" / "code-theme.tmTheme"
+BOOK_THEME = BOOK_ROOT / "template" / "code-theme.tmTheme"
 
 ICON = re.compile(r'icon:\s*"([^"]+)"')
 ICON_KEY = re.compile(r'^\s*"([a-z0-9-]+)":', re.M)
@@ -229,8 +233,21 @@ def check_icons():
     return True
 
 
+def check_code_theme():
+    """两端 code-theme.tmTheme 是同一份代码高亮主题，逐字节相同。"""
+    if not NOTE_THEME.exists() or not BOOK_THEME.exists():
+        print("✗ code-theme.tmTheme 缺失："
+              + ", ".join(str(p) for p in (NOTE_THEME, BOOK_THEME) if not p.exists()))
+        return False
+    if NOTE_THEME.read_bytes() == BOOK_THEME.read_bytes():
+        print("✓ code-theme.tmTheme 两端一致")
+        return True
+    print("✗ code-theme.tmTheme 两端不一致——色值漂移，同步后再提交")
+    return False
+
+
 def main():
-    ok = check_colors() and check_figstyle() and check_icons()
+    ok = check_colors() and check_figstyle() and check_icons() and check_code_theme()
     if not ok:
         sys.exit(1)
     print("同步校验通过。")

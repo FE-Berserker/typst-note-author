@@ -308,6 +308,7 @@ _页面设置由入口负责_：`single.typ` 与 `collection.typ` 都在开头�
 | 加粗 | 思源宋粗体字重，兜底 SimHei | 「换黑体」是换字体不是加粗，删字重后会失效 |
 | 首行缩进 | 2em 全段 | 中文惯例 |
 | 代码/公式 | 显式补思源宋回退 | 这两处字体纯西文，否则 Typst 在系统里乱挑（实测落到隶书） |
+| 代码块 | syntect 高亮（`code-theme.tmTheme`）+ 块级浅灰底板 | 高亮色值与调色板同源；tmTheme 的 background Typst 不渲染，底板由 `show raw.where(block: true)` 画 |
 | 题注 | 「图 1　标题」全角空格分隔 | Typst 默认西文连接号 |
 | 表格 | 列默认左对齐、格内禁两端对齐、三线表 | 对齐规矩混用曾是实际翻过车的点 |
 | 语言 | `lang: "zh"` | 让 Typst 自己负责断行与「图 / 表」本地化，不必手工改写 supplement |

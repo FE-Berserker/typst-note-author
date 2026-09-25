@@ -251,6 +251,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 | `colors.typ` | 全部配色唯一来源：`note-colors-base` 是全局色，`note-themes` 是每篇笔记的主题色板；末尾两个开关（打印灰阶） |
 | `boxes.typ` | 提示框 / 编号环境，Heroicons 图标 |
 | `figstyle.typ` | CeTZ 示意图、Fletcher 流程图、Lilaq 数据图的统一样式 |
+| `code-theme.tmTheme` | 代码块语法高亮主题（syntect）：Typst 自带高亮，这份把配色换成调色板同源；`note.typ` 的 `set raw(theme:)` 引用 |
 | `single.typ` | 单篇出口：一篇笔记一个 PDF |
 | `collection.typ` | 汇总出口：首页标题 + 自动总目录，之后每篇各起一页 |
 | `notes/` | 笔记正文；随附的两篇既是示例也是用法文档 |

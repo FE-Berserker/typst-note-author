@@ -922,7 +922,8 @@ def cmd_doctor(root):
     print(f"[doctor] 技能模板：{skill_tpl}")
     problems = 0
 
-    core = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ", "single.typ", "collection.typ")
+    core = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ", "single.typ",
+            "collection.typ", "code-theme.tmTheme")
     for f in core:
         if not (root / f).exists():
             print(f"✗ 缺核心文件 {f}——这个项目可能不是本技能搭的脚手架")
@@ -1162,7 +1163,8 @@ PACK_PREFIX = "笔记包"
 PACK_MANIFEST = "note-pack.json"
 PACK_README = "迁移说明.md"
 # 模板核心文件：skill 的 template/ 里除 notes/ 之外的那几个（跨项目复制的那份）
-CORE_FILES = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ", "single.typ", "collection.typ")
+CORE_FILES = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ", "single.typ",
+              "collection.typ", "code-theme.tmTheme")
 PACK_SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".idea", ".vscode"}
 
 

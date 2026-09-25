@@ -39,6 +39,7 @@ typst-note-author/
     ├── colors.typ         全部配色唯一来源
     ├── boxes.typ          提示框 / 编号环境
     ├── figstyle.typ       CeTZ / Fletcher / Lilaq 统一图形样式
+    ├── code-theme.tmTheme 代码块语法高亮主题（色值与调色板同源）
     ├── single.typ         单篇出口
     ├── collection.typ     汇总出口
     ├── .gitignore         编译产物与 notes_db 生成物（随模板复制）

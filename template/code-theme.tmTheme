@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	代码块语法高亮主题（syntect / tmTheme），供 note.typ 的 set raw(theme: …) 使用。
+	色值全部取自 colors.typ 的调色板：关键字用主题红、字符串用青、数字用橙、
+	函数用蓝、类型用紫、注释用 muted 灰——与提示框的语义色同一套来源，
+	代码块不会引入版式之外的陌生颜色。
+	background 仅是兜底：Typst 不渲染主题的底色（0.15 实测），块级代码的
+	底板由 note.typ 的 show raw.where(block: true) 规则用同值 fill 画出。
+	SYNC: 本文件与 typst-book-author/template/code-theme.tmTheme 逐字节相同，
+	改色值要同步改那边；scripts/check_sync.py 可机检。
+-->
+<plist version="1.0">
+<dict>
+	<key>name</key><string>note-code</string>
+	<key>settings</key>
+	<array>
+		<dict>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key><string>#222222</string>
+				<key>background</key><string>#f2f2f2</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>name</key><string>注释</string>
+			<key>scope</key><string>comment, punctuation.definition.comment</string>
+			<key>settings</key><dict><key>foreground</key><string>#8f8f8f</string></dict>
+		</dict>
+		<dict>
+			<key>name</key><string>关键字</string>
+			<key>scope</key><string>keyword, storage.type, storage.modifier</string>
+			<key>settings</key><dict><key>foreground</key><string>#c1002a</string></dict>
+		</dict>
+		<dict>
+			<key>name</key><string>字符串</string>
+			<key>scope</key><string>string, constant.character</string>
+			<key>settings</key><dict><key>foreground</key><string>#0d9488</string></dict>
+		</dict>
+		<dict>
+			<key>name</key><string>数字与语言常量</string>
+			<key>scope</key><string>constant.numeric, constant.language</string>
+			<key>settings</key><dict><key>foreground</key><string>#e58b00</string></dict>
+		</dict>
+		<dict>
+			<key>name</key><string>函数</string>
+			<key>scope</key><string>entity.name.function, support.function</string>
+			<key>settings</key><dict><key>foreground</key><string>#1d90d0</string></dict>
+		</dict>
+		<dict>
+			<key>name</key><string>类型</string>
+			<key>scope</key><string>entity.name.type, entity.name.class, support.type, support.class</string>
+			<key>settings</key><dict><key>foreground</key><string>#9865ca</string></dict>
+		</dict>
+		<dict>
+			<key>name</key><string>运算符</string>
+			<key>scope</key><string>keyword.operator</string>
+			<key>settings</key><dict><key>foreground</key><string>#222222</string></dict>
+		</dict>
+	</array>
+</dict>
+</plist>

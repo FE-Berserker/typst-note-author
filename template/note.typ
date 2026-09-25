@@ -235,6 +235,22 @@
   show raw: set text(font: note-font-mono)
   show math.equation: set text(font: note-font-math)
 
+  // ---- 代码块：语法高亮 + 底板 ----
+  // Typst 自带 syntect 高亮（语言标记的代码块默认就有颜色），这里换成与
+  // 调色板同源的 tmTheme（色值见 code-theme.tmTheme 头部注释）。主题的
+  // background 不会被渲染（0.15 实测），底板由下面这条规则单独画。
+  set raw(theme: "code-theme.tmTheme")
+  // 块级代码铺一层极浅的灰底、圆角，行内代码不铺。breakable: true：
+  // 长清单跨页断得开，不会被整块推到下一页留下半页空白。
+  show raw.where(block: true): it => block(
+    fill: note-colors.tint-gray,
+    radius: 3pt,
+    inset: (x: 0.8em, y: 0.6em),
+    width: 100%,
+    breakable: true,
+    it,
+  )
+
   // ---- 表格：统一列对齐，禁止单元格两端对齐 ----
   // 列默认左对齐，需要居中的列在各 table 里单独指定。不统一的话，
   // 同一份笔记里的几张表会各用一套对齐规矩。
