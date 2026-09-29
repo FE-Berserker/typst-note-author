@@ -63,7 +63,7 @@ DB_NAME = "notes.db"
 MD_NAME = "mindmap.md"
 HTML_NAME = "mindmap.html"
 GRAPH_NAME = "graph.html"
-PDF_DIR_NAME = "notes-pdf"  # 逐篇编译的 PDF，供知识图谱点击跳转
+PDF_DIR_NAME = "notes-pdf"  # 逐篇编译的 PDF；根目录已有单篇导出的就不在这里再存一份
 
 # ---- 技能的持久状态（跨会话记住存储位置与计数器）----
 # 环境变量 TYPST_NOTES_HOME 优先于状态文件；两者都没有时 --root 才落到当前目录
@@ -734,16 +734,33 @@ q.addEventListener('input', () => {
 """
 
 
-def compile_note_pdfs(root):
-    """把每篇笔记单独编译成 notes-pdf/<文件名>.pdf，返回 {笔记文件名: 相对路径}。
+# 逐篇编译的入口 _build-<篇名>.typ 只 import note.typ 和 figstyle.typ，顺着
+# import 链实际依赖的就是这几个：note.typ 自己再拉 colors.typ、boxes.typ，并用
+# set raw(theme:) 引 code-theme.tmTheme。
+#
+# 这里刻意窄于 CORE_FILES：single.typ / collection.typ 是另两个出口（单篇、合集）
+# 的入口，不在逐篇编译的依赖图里。single.typ 更是要频繁改 include 来切导出目标，
+# 若把它算进来，改一次就让全库的 PDF 缓存作废、重编几百篇。
+NOTE_PDF_DEPS = ("note.typ", "colors.typ", "boxes.typ", "figstyle.typ",
+                 "code-theme.tmTheme")
 
-    入口文件临时写在项目根（与 single.typ 同构），因为笔记里的相对 import
-    （../note.typ）按笔记文件自身位置解析，根目录正好匹配。
 
-    增量：PDF 比笔记源文件和模板核心文件都新就直接复用，几百篇的库不会每次
-    graph 都全量重编。笔记引用的图片（assets/）不参与判断——只改了图的话，
+def compile_note_pdfs(root, purge=True):
+    """给每篇笔记找一个能打开的 PDF，返回 {笔记文件名: 相对路径}。
+
+    找的顺序：根目录的单篇 PDF → notes-pdf/ 里的副本 → 现场编译到 notes-pdf/。
+    图谱只要「一篇一个能打开的 PDF」，根目录那份是同一篇的同一个东西，就不必要
+    求链接必须落在 notes-pdf/，省得同一篇存两份（几百 MB 的量级）。两份都在且
+    大小一致时删掉 notes-pdf/ 的副本回收空间（purge=False 可关）。
+
+    入口文件临时写在项目根（与 single.typ 同构，但另起一个文件名），因为笔记里的
+    相对 import（../note.typ）按笔记文件自身位置解析，根目录正好匹配。
+
+    增量：候选 PDF 比笔记源文件和 NOTE_PDF_DEPS 里的模板文件都新就算数，几百篇的库
+    不会每次 graph 都全量重编。笔记引用的图片（assets/）不参与判断——只改了图的话，
     把对应 PDF 删掉再跑，或 touch 一下笔记。编译按进程池并行（typst 是独立
-    子进程，互相不干扰），单篇超时 180 秒。"""
+    子进程，互相不干扰），单篇超时 180 秒。编译不过时若根目录还有旧的，宁可指向
+    旧的（会打印告警）也别让节点彻底点不开。"""
     notes_dir = root / "notes"
     if not notes_dir.is_dir() or not (root / "note.typ").exists():
         return {}
@@ -755,23 +772,27 @@ def compile_note_pdfs(root):
     pdf_dir.mkdir(exist_ok=True)
 
     tpl_mtime = 0.0
-    for f in CORE_FILES:
+    for f in NOTE_PDF_DEPS:
         p = root / f
         if p.exists():
             tpl_mtime = max(tpl_mtime, p.stat().st_mtime)
 
-    def build(note):
-        """返回 (笔记文件名, 相对路径或 None, 错误信息或 None, 是否复用)。"""
-        out_pdf = pdf_dir / f"{note.stem}.pdf"
-        if out_pdf.exists() and out_pdf.stat().st_mtime >= max(
-            note.stat().st_mtime, tpl_mtime
-        ):
-            return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", None, True
+    def compile_into(note, out_pdf):
+        """把一篇编到 out_pdf，返回 (成功与否, 错误信息或 None)。"""
         entry = root / f"_build-{note.stem}.typ"
         entry.write_text(
             '#import "note.typ": *\n#import "figstyle.typ": *\n'
             "#show: note-setup\n"
-            f'#include "notes/{note.name}"\n',
+            f'#include "notes/{note.name}"\n'
+            # 与 single.typ 同款：PDF 标题取笔记头的标题（第一枚隐形一级标题）。
+            # 少了这段，逐篇编出来的 PDF 没有标题元数据，跟用户在根目录单篇导出的
+            # 那份对不上（大小差百来字节），去重时会被误判成两个不同的东西。
+            "#context {\n"
+            "  let heads = query(selector(heading.where(level: 1)))\n"
+            "  if heads.len() > 0 {\n"
+            "    set document(title: heads.first().body)\n"
+            "  }\n"
+            "}\n",
             encoding="utf-8",
         )
         try:
@@ -781,49 +802,121 @@ def compile_note_pdfs(root):
                 encoding="utf-8", errors="replace", timeout=180,
             )
             if r.returncode == 0:
-                return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", None, False
-            err = " / ".join((r.stderr or r.stdout).strip().splitlines()[:2])
-            return note.name, None, err, False
+                return True, None
+            return False, " / ".join((r.stderr or r.stdout).strip().splitlines()[:2])
         except subprocess.TimeoutExpired:
-            return note.name, None, "编译超时（180 秒）", False
+            return False, "编译超时（180 秒）"
         finally:
             entry.unlink(missing_ok=True)
 
+    def build(note):
+        """返回 (笔记文件名, 相对路径或 None, 错误信息或 None, 动作)。"""
+        floor = max(note.stat().st_mtime, tpl_mtime)
+        root_pdf = root / f"{note.stem}.pdf"
+        out_pdf = pdf_dir / f"{note.stem}.pdf"
+        root_ok = root_pdf.exists() and root_pdf.stat().st_mtime >= floor
+        dir_ok = out_pdf.exists() and out_pdf.stat().st_mtime >= floor
+
+        # 根目录的单篇 PDF 与 notes-pdf/ 里的那份是同一个东西。图谱要的只是
+        # 「一篇一个能打开的 PDF」，根目录已有且不比笔记旧就直接指过去，不必在
+        # notes-pdf/ 里再存第二份。
+        if root_ok and not dir_ok:
+            return note.name, root_pdf.name, None, "reuse-root"
+        if dir_ok and not root_ok:
+            return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", None, "reuse-dir"
+        if root_ok and dir_ok and root_pdf.stat().st_size == out_pdf.stat().st_size:
+            # 两份一致，notes-pdf/ 那份是纯重复，标记下来让外层删掉
+            return note.name, root_pdf.name, None, "dedup"
+
+        # 到这里只剩两种：都没得用，或者两份都在但对不上。后者多半是
+        # notes-pdf/ 里那份出自修复前的入口（没写 PDF 标题元数据，与根目录那份
+        # 差百来字节）。重编一次：补上标题后若能与根目录对齐就顺手去重，对不上
+        # （根目录那份是别处导出的）就两份都留着，不猜。
+        ok, err = compile_into(note, out_pdf)
+        if ok and root_ok:
+            if root_pdf.stat().st_size == out_pdf.stat().st_size:
+                # 走到这说明原本是对不上的，重编这一次正是为了对齐
+                return note.name, root_pdf.name, None, "recompiled-dedup"
+            msg = (f"与根目录同名 PDF 大小不同（{root_pdf.stat().st_size} vs "
+                   f"{out_pdf.stat().st_size} 字节），两份都留")
+            return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", msg, "kept-both"
+        if ok:
+            return note.name, f"{PDF_DIR_NAME}/{out_pdf.name}", None, "compile"
+        # 编译不过但根目录还有一份（哪怕旧的）：先让节点可点，总比整篇不可跳转强
+        if root_pdf.exists():
+            return note.name, root_pdf.name, f"{err}（已改用根目录的旧 PDF）", "stale-root"
+        return note.name, None, err, "failed"
+
     links = {}
-    failed = []
-    n_reused = 0
+    broken = []      # 没有可用 PDF，节点点了打不开
+    warned = []      # 有 PDF 可用，但过程里有值得知道的事
+    counts = {"compile": 0, "reuse-dir": 0, "reuse-root": 0, "dedup": 0,
+              "recompiled-dedup": 0, "kept-both": 0, "stale-root": 0}
     notes = sorted(notes_dir.glob("*.typ"))
     workers = min(8, (os.cpu_count() or 4))
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        for name, link, err, reused in ex.map(build, notes):
+        for name, link, err, action in ex.map(build, notes):
             if link:
                 links[name] = link
-                n_reused += 1 if reused else 0
+                counts[action] += 1
             if err:
-                failed.append((name, err))
-    for name, err in failed:
+                (broken if not link else warned).append((name, err))
+    for name, err in broken:
         print(f"[graph] ⚠ {name} 编译失败（节点保留、不可跳转）：{err}", file=sys.stderr)
-    n_compiled = len(links) - n_reused
-    if n_compiled or n_reused:
-        print(f"[graph] 逐篇编译：新编 {n_compiled} 篇、复用未过期的 {n_reused} 篇")
+    for name, err in warned:
+        print(f"[graph] ⚠ {name}：{err}", file=sys.stderr)
+    n_freed, bytes_freed = prune_dupe_pdfs(pdf_dir, links) if purge else (0, 0)
+    if n_freed:
+        print(f"[graph] 清掉 {n_freed} 个与根目录重复的 notes-pdf/ 副本，释放 "
+              f"{bytes_freed / 1e6:.0f} MB")
+    total = sum(counts.values())
+    if total:
+        print(f"[graph] 逐篇 PDF {total} 篇：新编 {counts['compile']}、"
+              f"复用 notes-pdf/ {counts['reuse-dir']}、复用根目录 {counts['reuse-root']}、"
+              f"去重 {counts['dedup']}、重编后去重 {counts['recompiled-dedup']}、"
+              f"两份都留 {counts['kept-both']}、"
+              f"编译失败改用旧件 {counts['stale-root']}")
     return links
 
 
+def prune_dupe_pdfs(pdf_dir, links):
+    """链接已指向根目录的笔记，删掉 notes-pdf/ 里的同名副本。
+
+    返回 (删除个数, 释放字节数)。只删 links 明确指向根目录的那些（键即笔记
+    文件名），notes-pdf/ 下别的文件、以及没有对应笔记的孤儿 PDF 一概不动；
+    被删的都是编译产物，链接随时能靠重跑 graph 重建。"""
+    n = 0
+    freed = 0
+    for name, link in links.items():
+        if "/" in link:            # 仍指向 notes-pdf/，或本来就不可跳转
+            continue
+        p = pdf_dir / f"{os.path.splitext(name)[0]}.pdf"
+        if p.exists():
+            freed += p.stat().st_size
+            p.unlink()
+            n += 1
+    return n, freed
+
+
 def existing_note_pdfs(root):
-    """不编译时复用 notes-pdf/ 里已有的 PDF。"""
+    """不编译时找现成的 PDF：优先根目录的单篇，其次 notes-pdf/。"""
     pdf_dir = root / PDF_DIR_NAME
-    if not pdf_dir.is_dir():
-        return {}
     notes_dir = root / "notes"
+    if not notes_dir.is_dir():
+        return {}
     links = {}
-    for note in sorted(notes_dir.glob("*.typ")) if notes_dir.is_dir() else []:
+    for note in sorted(notes_dir.glob("*.typ")):
+        root_pdf = root / f"{note.stem}.pdf"
+        if root_pdf.exists():
+            links[note.name] = root_pdf.name
+            continue
         p = pdf_dir / f"{note.stem}.pdf"
         if p.exists():
             links[note.name] = f"{PDF_DIR_NAME}/{p.name}"
     return links
 
 
-def cmd_graph(root, open_browser, make_pdfs):
+def cmd_graph(root, open_browser, make_pdfs, purge=True):
     db = root / DB_NAME
     if not db.exists():
         print(f"[graph] 没找到 {db}，先运行 sync", file=sys.stderr)
@@ -836,7 +929,7 @@ def cmd_graph(root, open_browser, make_pdfs):
         sys.exit(1)
 
     # 逐篇编译 PDF 并挂到笔记节点上：点击节点即可打开该篇 PDF
-    links = compile_note_pdfs(root) if make_pdfs else existing_note_pdfs(root)
+    links = compile_note_pdfs(root, purge) if make_pdfs else existing_note_pdfs(root)
     for n in data["nodes"]:
         if n["group"] != "note":
             continue
@@ -847,7 +940,7 @@ def cmd_graph(root, open_browser, make_pdfs):
         else:
             n["title"] += "<br>（未生成 PDF，不可跳转；重跑 graph 可补）"
     if links:
-        print(f"[graph] 逐篇 PDF：{len(links)} 篇就绪（{PDF_DIR_NAME}/，点击笔记节点打开）")
+        print(f"[graph] 逐篇 PDF：{len(links)} 篇就绪（点击笔记节点打开）")
 
     # </ 转义防止笔记标题里出现它时截断 <script>；U+2028/U+2029 在 JS 字符串
     # 字面量里是非法行分隔符（JSON 合法、JS 不合法），同样转掉，否则整页空白
@@ -1522,6 +1615,8 @@ def main():
     p_graph = sub.add_parser("graph", help="从 notes.db 生成 vis-network 交互式知识图谱 HTML")
     p_graph.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     p_graph.add_argument("--no-pdf", action="store_true", help="跳过逐篇编译 PDF（笔记节点不可跳转）")
+    p_graph.add_argument("--keep-dupe", action="store_true",
+                         help="不去重：根目录与 notes-pdf/ 有同一篇的 PDF 时两份都留着")
     p_mm = sub.add_parser("mindmap", help="从 notes.db 生成 markmap 交互导图 HTML")
     p_mm.add_argument("--open", action="store_true", help="生成后直接在浏览器打开")
     p_root = sub.add_parser("root", help="查询/登记笔记项目位置（不带参数=查询）")
@@ -1573,7 +1668,7 @@ def main():
     if args.cmd == "sync":
         cmd_sync(root)
     elif args.cmd == "graph":
-        cmd_graph(root, args.open, not args.no_pdf)
+        cmd_graph(root, args.open, not args.no_pdf, not args.keep_dupe)
     elif args.cmd == "collect":
         cmd_collect(root, full=args.full)
     elif args.cmd == "doctor":
