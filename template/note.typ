@@ -269,11 +269,15 @@
   // stroke 传函数时，x/y 是单元格坐标，且只会收到整数——表头行是 y == 0，
   // 而「最后一行」没有对应的标记（"first"/"last" 实测收不到），
   // 所以底线只能靠外面包一层 block 补上，见下面那条 show 规则。
+  // 不画线的一侧必须写 none，不能写 0pt：0pt 是「已指定的零宽线」，在与
+  // 相邻单元格的共享边裁决中会压过对侧的真线、自身又画不出来——表头下条线
+  // 曾被数据行的 top: 0pt 这样顶掉（表头下 17 行纯白实测）；none 是「未指定」，
+  // 会把边让给对侧，表头的 0.6pt 底才画得出来。
   set table(stroke: (x, y) => (
-    top: if y == 0 { 0.9pt + note-colors.ink } else { 0pt },
-    bottom: if y == 0 { 0.6pt + note-colors.ink } else { 0pt },
-    left: 0pt,
-    right: 0pt,
+    top: if y == 0 { 0.9pt + note-colors.ink } else { none },
+    bottom: if y == 0 { 0.6pt + note-colors.ink } else { none },
+    left: none,
+    right: none,
   ))
   // 底线：往表格末尾追加一条 hline（表格内部元素，随表宽收缩）。
   // 不要包 block 补底线——block 会破坏跨页时的表头重复（实测续页直接从
