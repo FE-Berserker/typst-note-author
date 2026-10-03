@@ -200,8 +200,9 @@
 )
 
 // 证明：不编号，结尾自动加 ∎（QED 符号，靠右对齐——正文以行间公式
-// 结尾时，不加 h(1fr) 的话 ∎ 会掉到下一行左端）
-#let proof(body, title: none) = showybox(
+// 结尾时，不加 h(1fr) 的话 ∎ 会掉到下一行左端）。超过一页的长证明
+// 显式传 breakable: true，否则会溢出页尾。
+#let proof(body, title: none, breakable: false) = showybox(
   title: box-title(
     hi("check-badge", height: 1em, color: white),
     [*证明#if title != none [（#title）]*],
@@ -209,5 +210,5 @@
   title-style: box-tab-style,
   frame: box-frame(box-colors.gray),
   align: center,
-  breakable: false,
+  breakable: breakable,
 )[#body #h(1fr) #sym.qed]
