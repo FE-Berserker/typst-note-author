@@ -29,7 +29,7 @@
 
 // 模板版本：notes_db.py doctor 用它判断项目里的这份拷贝是否落后于技能模板。
 // 旧拷贝可能缺已修复的规则（如「表题在表格上方」），开工前先跑 doctor 体检。
-#let template-version = "2026-09-25"
+#let template-version = "2026-10-04"
 
 // ---- 版式参数 ----
 #let note-paper = "a4"
@@ -67,14 +67,27 @@
 #let note-column-width = note-paper-width - note-margin-left - note-margin-right
 
 // ---- 字体链 ----
-// 与书籍样板同一套：正文思源宋体、标题黑体、强调楷体。
-// 链尾放非 Windows 的兜底（Noto Serif SC / Noto Sans SC）。
+// 与书籍样板同一套：正文思源宋体、标题思源黑体、强调楷体。
+// 标题中西文与汉字同走 Noto Sans SC（西文与汉字配套设计、中西文都有真粗体），
+// SimHei 是没装思源黑体时的兜底。早先「西文走 Arial」的方案已弃用：SimHei
+// 没有粗体字面而 Typst 不做伪粗体，中西文粗细不对称，Arial 的 x-height 又
+// 明显小于汉字字面（详见书籍样板 main.typ 的说明）。
 // 注意不要放只装了单一粗字重的字体族，否则正文整体变特粗。
 #let note-font-body = ("New Computer Modern", "Noto Serif SC", "SimSun")
-#let note-font-head = ("Arial", "SimHei", "Noto Sans SC")
+#let note-font-head = ("Noto Sans SC", "SimHei")
 #let note-font-kai = ("New Computer Modern", "KaiTi", "STKaiti", "Noto Serif SC")
 #let note-font-math = ("New Computer Modern Math", "Noto Serif SC")
 #let note-font-mono = ("DejaVu Sans Mono", "Noto Serif SC")
+
+// 展示标题里的西文与数字提 6% 字号：拉丁字母的字面率（x-height 约占字身框一半）
+// 与撑满字身框的汉字（约九成）天生有差距，同字号下西文显小一圈，按中文出版惯例
+// 放大 1.06 倍让中英字面看齐。只用于标题；正文不放大——那里的大小差是中西混排
+// 的通行观感。节标题靠 note-setup 里那条 `show heading: note-title-boost`，
+// 笔记标题与册名（都不是 heading 元素）由各自位置显式调用。
+#let note-title-boost(body) = {
+  show regex("[A-Za-z0-9]+"): it => text(size: 1.06em, it)
+  body
+}
 
 // ---- 颜色与字号别名（色值见 colors.typ）----
 
@@ -189,10 +202,13 @@
 
   // ---- 标题 ----
   // 笔记标题（一级）由 note-header 自绘并隐掉，这里只管节标题。
-  // 节标题用黑体；西文单独走 Arial——若让西文走 NCM，bold 会落在衬线粗体上，
-  // 挨着黑体像两个年代的字。
+  // 节标题中西文与汉字同走思源黑体（同族同粗，见上面 note-font-head 的说明）。
   set heading(numbering: none)
   show heading: set text(font: note-font-head, fill: note-colors.ink, weight: "bold")
+  // 标题里的西文与数字提 6% 字号（见 note-title-boost）。这条规则只是包一层、
+  // 原样转出 it：与下面 level 2/3 的竖标规则链式共存，互不影响；
+  // 作用域只圈住标题，正文、页眉页脚里的西文保持原字号。
+  show heading: note-title-boost
   show heading.where(level: 2): set text(size: 13pt)
   show heading.where(level: 3): set text(size: 11.5pt)
   // 节标题左缘挂一道竖标（与笔记头的短标同一套语言，颜色跟当前这一篇的主题色），
@@ -431,7 +447,8 @@
       rect(width: 1.6cm, height: 3pt, fill: theme)
     }
     #v(0.85em)
-    #text(font: note-font-head, size: 1.6em, weight: "bold", fill: note-colors.ink)[#title]
+    // 笔记标题是展示标题但不是 heading 元素，提字号要显式包一层（见 note-title-boost）
+    #note-title-boost(text(font: note-font-head, size: 1.6em, weight: "bold", fill: note-colors.ink)[#title])
     #v(0.55em)
 
     // 元信息行：左端「日期 + 标签」，右端「状态」

@@ -145,9 +145,10 @@ typst compile collection.typ 我的笔记.pdf   # 汇总成册（include 列表�
 要求 Typst 0.13+（用到的最新语法是 0.13 引入的 `first-line-indent` 配置；
 实测 0.15.1）。首次编译需联网拉取 `@preview` 依赖
 （showybox、heroic、cetz、fletcher、lilaq、tiptoe、marginalia）。
-字体依赖：Noto Serif SC（正文）、SimHei + Arial（标题）、KaiTi/STKaiti（强调）、
-New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非 Windows 系统
-需要思源黑体/思源宋体兜底（字体链已配好）。
+字体依赖：Noto Serif SC（正文）、Noto Sans SC（标题，中西文同族同粗）、
+KaiTi/STKaiti（强调）、New Computer Modern（西文与数学）、DejaVu Sans Mono
+（代码）——思源黑体/思源宋体缺失时由 SimHei/SimSun 兜底（字体链已配好，
+标题观感会降一档）。
 
 ### 4. 编册（满 20 篇编一卷，已收录的不再重复进卷）
 
@@ -167,7 +168,8 @@ New Computer Modern（西文与数学）、DejaVu Sans Mono（代码）——非
   数卷，直到未收录不足 20 篇（余下的留到下次）；编译失败会把原因带出来，
   处理后手动重跑；
 - 卷号接在目录里已有的卷后面（`合集-日期-卷NN.pdf` 的最大号 +1），
-  文件名即卷号，不会重名覆盖；
+  文件名即卷号，不会重名覆盖；合集卷与逐篇 PDF 同仓，都落在
+  `notes-pdf/`，不在笔记根目录散落；
 - 用户随时要合集：`collect` 编一卷当前未收录的（不足 20 篇也照编）；
   要一次把全部笔记编成整套，用 `collect --full`（文件很大，慎用）。
 - 已收录清单记在 `~/.typst-note-author/state.json`，**只跟踪一个笔记项目**
