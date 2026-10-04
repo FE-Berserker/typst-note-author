@@ -1110,10 +1110,11 @@ def next_volume_no(root, st=None):
     （pack 默认不收编译产物），只数目录的话卷号会从 01 重来、跟旧机器撞号。
     """
     nums = []
-    for p in root.glob("合集-*-卷*.pdf"):
-        m = VOLUME_RE.match(p.name)
-        if m:
-            nums.append(int(m.group(4)))
+    for base in (root, root / PDF_DIR_NAME):
+        for p in base.glob("合集-*-卷*.pdf"):
+            m = VOLUME_RE.match(p.name)
+            if m:
+                nums.append(int(m.group(4)))
     for v in ((st if st is not None else load_state()).get("volumes") or []):
         m = VOLUME_RE.match(str(v.get("file", "")))
         if m:
@@ -1201,14 +1202,16 @@ def cmd_collect(root, full=False):
         print("[collect] 找不到 typst 命令，确认已安装并在 PATH 里", file=sys.stderr)
         sys.exit(1)
     if full:
-        out = root / f"合集-{date.today():%Y%m%d}.pdf"
+        out = root / PDF_DIR_NAME / f"合集-{date.today():%Y%m%d}.pdf"
         # 整套合集不带卷号，同一天重跑会撞名——递增后缀避让，不静默覆盖
         n = 1
         while out.exists():
             n += 1
-            out = root / f"合集-{date.today():%Y%m%d}-{n}.pdf"
+            out = root / PDF_DIR_NAME / f"合集-{date.today():%Y%m%d}-{n}.pdf"
     else:
-        out = root / f"合集-{date.today():%Y%m%d}-卷{next_volume_no(root, st):02d}.pdf"
+        out = root / PDF_DIR_NAME / f"合集-{date.today():%Y%m%d}-卷{next_volume_no(root, st):02d}.pdf"
+    # 合集卷与逐篇 PDF 同仓库：单独的 PDF 归暂区，别散在笔记根目录
+    out.parent.mkdir(exist_ok=True)
     r = subprocess.run(
         [typst, "compile", str(col), str(out)],
         cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace",
