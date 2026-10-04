@@ -37,8 +37,7 @@
   v(1.6em)
   rect(width: 2.4cm, height: 4pt, fill: note-colors.primary)
   v(1.1em)
-  // 册名是展示标题但不是 heading 元素，提字号要显式包一层（note-title-boost 在 note.typ）
-  note-title-boost(text(font: note-font-head, size: 2.5em, weight: "bold", fill: note-colors.ink)[#title])
+  text(font: note-font-head, size: 2.5em, weight: "bold", fill: note-colors.ink)[#title]
 
   if subtitle != none {
     v(0.7em)
