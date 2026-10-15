@@ -190,7 +190,7 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 ```
 
 - `graph.html` 是**交互式知识图谱**（vis-network 力导向图；项目里放一份
-  `assets/vendor/vis-network.min.js` 即本地离线渲染，缺件时回落 CDN）：
+  `images/vendor/vis-network.min.js` 即本地离线渲染，缺件时回落 CDN）：
   关键词为节点，**同一篇笔记出现过的关键词互相关联**（共现边，边越粗同现
   越多），节点大小 = 关联笔记数；拖动节点重排、滚轮缩放、点击节点高亮它的
   关联、搜索框定位关键词；「显示笔记节点」开关把每篇笔记也放进图里
@@ -216,11 +216,11 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> graph --open
 
 用户说「打包笔记」「换电脑怎么搬」「备份一下笔记」时用这一对子命令。
 不要用「把整个目录拷过去」代替：项目里真正要搬的是 `notes/` 正文和
-`assets/` 素材，而编译产物占了大头——合集一个文件就几百 MB，`notes-pdf/`
+`images/` 素材（旧项目的 `assets/` 也认），而编译产物占了大头——合集一个文件就几百 MB，`notes-pdf/`
 又是同样量级。pack 按白名单收，正好把这些留在原处。
 
 ```bash
-# 源机器：打成 <项目>/笔记包-日期.zip（模板核心文件 + notes/ + assets/ + 打包清单）
+# 源机器：打成 <项目>/笔记包-日期.zip（模板核心文件 + notes/ + images/ + 打包清单）
 python <技能目录>/scripts/notes_db.py --root <项目> pack
 python <技能目录>/scripts/notes_db.py --root <项目> pack --no-assets   # 素材另拷时出小包（十几 MB）
 python <技能目录>/scripts/notes_db.py --root <项目> pack --with-pdfs   # 连编译好的 PDF 一起带走
@@ -240,10 +240,11 @@ python <技能目录>/scripts/notes_db.py restore 笔记包-20260925.zip --into 
 - 想连旧合集 PDF 一起搬：在源机器 `pack --with-pdfs`（包会大一个数量级）。
 
 其它细节：包里不含 `notes.db` / 图谱 HTML / `notes-pdf/`（目标机器上 `sync`、
-`graph` 重新生成）；`--no-assets` 的小包要在那边自己补 `assets/`；目标机器要装
+`graph` 重新生成）；`--no-assets` 的小包要在那边自己补 `images/`；目标机器要装
 Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note-author 装；
 `restore` 默认解到当前目录下与包同名的新目录，目录非空要 `--force`，本机状态里
-登记着别的项目时也要 `--force` 才接管（否则只解包、不动账）。
+登记着别的项目时也要 `--force` 才接管（否则只解包、不动账）；`--force` 解进已有
+目录时，与包里内容不同的同名文件会先备份到 `restore-backup-日期/` 再覆盖。
 
 ## 模板文件一览
 

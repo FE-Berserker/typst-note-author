@@ -25,8 +25,9 @@
             第一次为用户建笔记项目时先问清存哪里，登记一次，
             之后所有子命令不带 --root 就默认用这个位置
   pack      把笔记项目打成一个 zip（迁移到另一台电脑用）：模板核心文件 +
-            notes/*.typ + assets/ + 打包清单；编译产物（PDF、notes.db、图谱）
-            默认不收——它们在目标机器上重新生成即可，而合集 PDF 动辄几百 MB。
+            notes/*.typ + images/（旧 assets/）+ bibliography/ + 打包清单；
+            编译产物（PDF、notes.db、图谱）默认不收——它们在目标机器上
+            重新生成即可，而合集 PDF 动辄几百 MB。
             --with-pdfs 连编译好的 PDF 一起收，--all 连临时文件一起收
   restore   解开 pack 打的包：还原笔记到目标目录、登记笔记位置，然后**自动按
             20 篇一卷把导入的笔记编出来**（包里的合集 PDF 默认没跟过来，所以在
@@ -37,7 +38,7 @@
             往期合集收录的清单自动统计
 
 状态文件：~/.typst-note-author/state.json（存储位置、已收录清单、历卷记录）。
-依赖：Python 3.8+（仅标准库）。HTML 视图优先用项目内 assets/vendor/ 的
+依赖：Python 3.8+（仅标准库）。HTML 视图优先用项目内 images/vendor/ 的
 本地渲染库（vis-network / markmap），缺件时回落 CDN（需联网）；
 图数据本身已内嵌在 HTML 里。
 """
@@ -349,8 +350,8 @@ def sync_db(root):
     return notes
 
 
-def collect_pending(root, notes):
-    """把未收录的笔记按卷编完（sync 与 restore 共用）。
+def collect_pending(root, notes, tag="sync"):
+    """把未收录的笔记按卷编完（sync 与 restore 共用，tag 只管日志前缀）。
 
     跟状态里记的「往期合集收录清单」对账，攒够一卷编一卷，编完接着数：
     一次跑完，未收录的必定不足一卷。返回未收录的剩余篇数。
@@ -360,14 +361,14 @@ def collect_pending(root, notes):
         collected = set(load_state().get("collected_notes", []))
         pending = [n for n in all_names if n not in collected]
         if len(pending) < COLLECT_EVERY:
-            print(f"[sync] 未收录 {len(pending)} 篇，距下一卷还有 "
+            print(f"[{tag}] 未收录 {len(pending)} 篇，距下一卷还有 "
                   f"{COLLECT_EVERY - len(pending)} 篇")
             return len(pending)
-        print(f"[sync] 未收录 {len(pending)} 篇（一卷 {COLLECT_EVERY} 篇）——自动编卷")
+        print(f"[{tag}] 未收录 {len(pending)} 篇（一卷 {COLLECT_EVERY} 篇）——自动编卷")
         try:
             auto = cmd_collect(root)
         except SystemExit:
-            print("[sync] 自动编卷中止：按上面的提示处理后，手动跑一次 collect 或 sync",
+            print(f"[{tag}] 自动编卷中止：按上面的提示处理后，手动跑一次 collect 或 sync",
                   file=sys.stderr)
             return len(pending)
         if not auto:
@@ -482,15 +483,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-#: 离线运行时：项目内存在 assets/vendor 三件套（d3 / markmap-lib /
-#: markmap-view 的本地副本）时优先使用——CDN（jsdelivr）不可达或 file://
-#: 受限时在线版会整页空白（2026-09-22 实测）。三件套可用
+#: 素材目录：images/ 是现行约定（与 Typst 社区惯例一致）；assets/ 是早期
+#: Markdown 迁移时代的旧约定——老项目还在用它，打包与离线渲染两处都认。
+ASSET_DIRS = ("images", "assets")
+ASSET_PREFIXES = tuple(d + "/" for d in ASSET_DIRS)
+
+#: 离线运行时：项目内存在 vendor 三件套（d3 / markmap-lib / markmap-view 的
+#: 本地副本）时优先使用——CDN（jsdelivr）不可达或 file:// 受限时在线版会整页
+#: 空白（2026-09-22 实测）。放在 images/vendor/ 下（老项目的 assets/vendor/
+#: 也认）；三件套可用
 #: curl -sLO https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js 等同源命令取得
-_VENDOR_FILES = (
-    "assets/vendor/d3.min.js",
-    "assets/vendor/markmap-lib.js",   # markmap-lib@0.18 dist/browser/index.iife.js
-    "assets/vendor/markmap-view.js",  # markmap-view@0.18 dist/browser/index.js
+_VENDOR_NAMES = (
+    "d3.min.js",
+    "markmap-lib.js",   # markmap-lib@0.18 dist/browser/index.iife.js
+    "markmap-view.js",  # markmap-view@0.18 dist/browser/index.js
 )
+
+
+def vendor_files(root):
+    """vendor 三件套的本机路径（root 相对）：images/vendor/ 优先，旧 assets/vendor/ 也认。
+
+    三件齐全返回路径列表；缺任一件返回 None——调用方回落 CDN。"""
+    paths = []
+    for name in _VENDOR_NAMES:
+        found = next((root / d / "vendor" / name for d in ASSET_DIRS
+                      if (root / d / "vendor" / name).exists()), None)
+        if found is None:
+            return None
+        paths.append(found)
+    return paths
 
 _ONLINE_HEAD = """<script>
   window.markmap = { autoLoader: { manual: false } };
@@ -523,9 +544,10 @@ def cmd_mindmap(root, open_browser):
 
     (root / MD_NAME).write_text(tags_md + "\n\n---\n\n" + notes_md + "\n", encoding="utf-8")
     html_path = root / HTML_NAME
-    offline = all((root / f).exists() for f in _VENDOR_FILES)
-    if offline:
-        runtime_head = "\n".join(f'<script src="{f}"></script>' for f in _VENDOR_FILES)
+    vendor = vendor_files(root)
+    if vendor:
+        runtime_head = "\n".join(
+            f'<script src="{p.relative_to(root).as_posix()}"></script>' for p in vendor)
         runtime_tail = _OFFLINE_TAIL
     else:
         runtime_head = _ONLINE_HEAD
@@ -757,7 +779,7 @@ def compile_note_pdfs(root, purge=True):
     相对 import（../note.typ）按笔记文件自身位置解析，根目录正好匹配。
 
     增量：候选 PDF 比笔记源文件和 NOTE_PDF_DEPS 里的模板文件都新就算数，几百篇的库
-    不会每次 graph 都全量重编。笔记引用的图片（assets/）不参与判断——只改了图的话，
+    不会每次 graph 都全量重编。笔记引用的图片（images/，旧 assets/）不参与判断——只改了图的话，
     把对应 PDF 删掉再跑，或 touch 一下笔记。编译按进程池并行（typst 是独立
     子进程，互相不干扰），单篇超时 180 秒。编译不过时若根目录还有旧的，宁可指向
     旧的（会打印告警）也别让节点彻底点不开。"""
@@ -949,16 +971,18 @@ def cmd_graph(root, open_browser, make_pdfs, purge=True):
         .replace("\u2028", "\\u2028") \
         .replace("\u2029", "\\u2029")
     out = root / GRAPH_NAME
-    # 本地离线渲染：assets/vendor/vis-network.min.js 在场时优先（CDN 不可达
-    # 或 file:// 受限时在线版整页空白——与 mindmap 的离线逻辑同款）
-    vis_local = root / "assets/vendor/vis-network.min.js"
-    vis_src = "assets/vendor/vis-network.min.js" if vis_local.exists() \
+    # 本地离线渲染：images/vendor/vis-network.min.js 在场时优先（旧项目在
+    # assets/vendor/ 也认）；CDN 不可达或 file:// 受限时在线版整页空白——
+    # 与 mindmap 的离线逻辑同款
+    vis_local = next((root / d / "vendor/vis-network.min.js" for d in ASSET_DIRS
+                      if (root / d / "vendor/vis-network.min.js").exists()), None)
+    vis_src = vis_local.relative_to(root).as_posix() if vis_local \
         else "https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"
     out.write_text(
         GRAPH_HTML.replace("__DATA__", payload).replace("__VIS_SRC__", vis_src),
         encoding="utf-8",
     )
-    print(f"[graph] {out}  （{data['stats']}；{'本地离线渲染' if vis_local.exists() else 'CDN 在线渲染'}）")
+    print(f"[graph] {out}  （{data['stats']}；{'本地离线渲染' if vis_local else 'CDN 在线渲染'}）")
     if open_browser:
         webbrowser.open(out.resolve().as_uri())
 
@@ -1246,7 +1270,8 @@ def cmd_bump():
 # ============================================================
 # 打包迁移（pack / restore）：整个笔记项目打成一个 zip，换台电脑继续用
 # ------------------------------------------------------------
-# 打包只收「迁移真正需要的」：模板核心文件 + notes/*.typ + assets/。
+# 打包只收「迁移真正需要的」：模板核心文件 + notes/*.typ + images/（旧 assets/）
+# + bibliography/。
 # 编译产物（合集与单篇 PDF、notes.db、graph.html、mindmap.html、notes-pdf/）
 # 都能在目标机器上重新生成，而它们往往比笔记本身大两个数量级——合集一个
 # 文件就几百 MB，默认收进去，包就没法传了。
@@ -1283,7 +1308,7 @@ def pack_readme(manifest):
 - `note.typ` / `colors.typ` / `boxes.typ` / `figstyle.typ` / `single.typ` / `collection.typ`
   与 `.gitignore`：模板核心文件；
 - `notes/*.typ`：全部笔记正文，共 **{manifest["note_count"]} 篇**；
-- `assets/`：笔记引用的图片与素材{"" if manifest["with_assets"] else "（**本次没打进来**，见下）"}；
+- `images/`：笔记引用的图片与素材{"" if manifest["with_assets"] else "（**本次没打进来**，见下）"}（老项目里也可能叫 `assets/`，含义相同）；
 - `note-pack.json`：打包清单（来源路径、篇数、源机器的收录进度与往期卷号、模板版本）。
 
 {pdfs_line}
@@ -1304,6 +1329,8 @@ def pack_readme(manifest):
 3. `restore` 会自己往下做：登记笔记位置 → 重建 notes.db → **按 {COLLECT_EVERY} 篇一卷
    把导入的笔记编出来**（往期合集 PDF 没在包里，所以在这台机器上重新编；要逐卷编译，
    可能跑一阵，中断了再跑一次 sync 会接着编）。不想现在编就加 `--no-collect`。
+   解进已有目录（`--force`）时，与包里内容不同的同名文件会先备份到
+   `restore-backup-日期/` 再被覆盖，本机改动不会无声明地丢。
 
 这台机器上原本就有笔记时，两边的账各算各的：本机已收录的继续认账，导进来还没收录的
 排进新的卷；新卷号接在「本机往期卷」和「包里往期卷」的最大号之后，两边都不撞号。
@@ -1314,7 +1341,7 @@ def pack_readme(manifest):
 def pack_members(root, with_pdfs=False, everything=False):
     """挑出要打进包的文件，返回 (录入, 跳过) 两组相对路径。
 
-    默认＝模板核心文件 + notes/*.typ + assets/ + .gitignore；
+    默认＝模板核心文件 + notes/*.typ + images/（旧 assets/）+ bibliography/ + .gitignore；
     --with-pdfs 再加编译好的 PDF，--all 则整个项目都收（跳过 .git 之类）。
     产物、临时文件是否被打进包，都会在结尾逐条报出来，不会闷声丢东西。
     """
@@ -1345,7 +1372,9 @@ def pack_members(root, with_pdfs=False, everything=False):
                 included.append(rel)
             else:
                 skipped.append(rel)
-        elif top == "assets":
+        elif top in ASSET_DIRS or top == "bibliography":
+            # 素材目录（images/ 现行、assets/ 旧约定）与参考文献目录整体带上；
+            # 白名单之外的一律跳过并在结尾点名，不闷声丢
             included.append(rel)
         elif top == "notes":
             # notes/ 下的东西基本都带上（可能有贴在笔记旁边的图），但 *.pdf
@@ -1388,12 +1417,16 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
     # 但卷号得算上，不然目标机器上会从 01 重来）
     volumes = list(st.get("volumes", [])) if same_project else []
     known = {v.get("file") for v in volumes}
-    for name in (p.name for p in sorted(root.glob("合集-*-卷*.pdf"))):
-        m = VOLUME_RE.match(name)
-        if m and name not in known:
-            volumes.append({"file": name,
-                            "date": f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
-                            "count": None})
+    # 卷 PDF 在根目录与 notes-pdf/ 都可能有（collect 把卷写进 notes-pdf/，
+    # 手工切出来的卷常留在根目录）——两处都扫，与 next_volume_no 的口径一致
+    for base in (root, root / PDF_DIR_NAME):
+        for p in sorted(base.glob("合集-*-卷*.pdf")):
+            m = VOLUME_RE.match(p.name)
+            if m and p.name not in known:
+                volumes.append({"file": p.name,
+                                "date": f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
+                                "count": None})
+                known.add(p.name)
     volumes.sort(key=lambda v: str(v.get("file")))
     manifest = {
         "tool": "typst-note-author",
@@ -1417,7 +1450,7 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
 
     included, skipped = pack_members(root, with_pdfs, everything)
     if no_assets:
-        included = [r for r in included if r.parts[0] != "assets"]
+        included = [r for r in included if r.parts[0] not in ASSET_DIRS]
     # 清单与说明排在最前，解包时第一眼就能看到
     out.parent.mkdir(parents=True, exist_ok=True)
     raw = raw_notes = raw_assets = 0
@@ -1433,11 +1466,11 @@ def cmd_pack(root, out=None, with_pdfs=False, everything=False, no_assets=False)
             raw += sz
             if rel.parts[0] == "notes":
                 raw_notes += sz
-            elif rel.parts[0] == "assets":
+            elif rel.parts[0] in ASSET_DIRS:
                 raw_assets += sz
     size = out.stat().st_size
     n_note_files = sum(1 for r in included if r.parts[0] == "notes")
-    n_assets = sum(1 for r in included if r.parts[0] == "assets")
+    n_assets = sum(1 for r in included if r.parts[0] in ASSET_DIRS)
     print(f"[pack] 已生成：{out}")
     if included:
         print(f"[pack] 文件 {len(included)} 个 + 清单/说明 2 个；"
@@ -1494,6 +1527,19 @@ def _inside(target, dest):
         return False
 
 
+def _zip_differs(z, name, disk):
+    """zip 内的文件与磁盘上同名文件内容是否不同（先比大小，再逐块比字节）。"""
+    if z.getinfo(name).file_size != disk.stat().st_size:
+        return True
+    with z.open(name) as zf, open(disk, "rb") as df:
+        while True:
+            a, b = zf.read(1 << 20), df.read(1 << 20)
+            if a != b:
+                return True
+            if not a:
+                return False
+
+
 def merge_restored_state(target, manifest, st):
     """把刚解开的包并进本机状态，返回本机继续认账的已收录篇数。
 
@@ -1538,11 +1584,31 @@ def cmd_restore(zip_path, into=None, force=False, no_state=False, no_collect=Fal
             print(f"[restore] {target} 不是空目录——确认要往里面写，加 --force", file=sys.stderr)
             sys.exit(1)
         target.mkdir(parents=True, exist_ok=True)
+        # --force 解进非空目录时，同名文件不闷声覆盖：与包里内容不同的先整个
+        # 备份出来再覆盖（同名同内容的不动也不报）。两台机器各自改过同一篇时，
+        # 晚解包的一方改动进备份，不至于无声无息地丢
+        clashes = sorted(
+            (n for n in names if not n.endswith("/")
+             and (target / n).is_file() and _zip_differs(z, n, target / n)),
+            key=lambda n: (n.startswith(ASSET_PREFIXES), n))
+        if clashes:
+            backup = target / f"restore-backup-{date.today():%Y%m%d}"
+            k = 2
+            while backup.exists():
+                backup = target / f"restore-backup-{date.today():%Y%m%d}-{k}"
+                k += 1
+            for n in clashes:
+                (backup / n).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target / n, backup / n)
+            show = "、".join(clashes[:8]) + ("…" if len(clashes) > 8 else "")
+            print(f"[restore] 目标目录已有 {len(clashes)} 个同名文件与包里不同——"
+                  f"原来的文件先备份到 {backup.name}/，再被包里的版本覆盖：")
+            print(f"[restore]   {show}")
         z.extractall(target)
 
     files = [n for n in names if n != PACK_MANIFEST and not n.endswith("/")]
     n_notes = sum(1 for n in files if n.startswith("notes/"))
-    n_assets = sum(1 for n in files if n.startswith("assets/"))
+    n_assets = sum(1 for n in files if n.startswith(ASSET_PREFIXES))
     print(f"[restore] 已解开到：{target}")
     print(f"[restore] notes/ 下 {n_notes} 个文件（清单记的笔记 {manifest.get('note_count')} 篇） | "
           f"素材 {n_assets} 个 | 其它 {len(files) - n_notes - n_assets} 个")
@@ -1556,7 +1622,8 @@ def cmd_restore(zip_path, into=None, force=False, no_state=False, no_collect=Fal
             print(f"[restore] 提示：包的模板版本 {manifest['template_version']} ≠ 技能的 {v_skill}，"
                   "恢复后先跑一次 doctor 按提示补")
     if not manifest.get("with_assets", True) or not n_assets:
-        print("[restore] 包里没有 assets/：笔记里的图片会缺，把源项目的 assets/ 拷到项目根目录下")
+        print("[restore] 包里没有 images/（素材）：笔记里的图片会缺，"
+              "把源项目的 images/（旧 assets/）拷到项目根目录下")
 
     merged = False
     if no_state:
@@ -1587,7 +1654,9 @@ def cmd_restore(zip_path, into=None, force=False, no_state=False, no_collect=Fal
               "在源机器上重新 pack --with-pdfs，或把 合集-*.pdf 单独拷到这个目录")
 
     if merged:
-        before = {p.name for p in target.glob("合集-*-卷*.pdf")}
+        # 卷可能落在根目录或 notes-pdf/，两处一起看（与 next_volume_no 同口径）
+        vol_dirs = (target, target / PDF_DIR_NAME)
+        before = {p.name for base in vol_dirs for p in base.glob("合集-*-卷*.pdf")}
         notes = sync_db(target)      # 库总是重建：很便宜，图谱/思维导图都要它
         if no_collect:
             print("[restore] --no-collect：只重建了 notes.db，没有编卷；"
@@ -1600,8 +1669,9 @@ def cmd_restore(zip_path, into=None, force=False, no_state=False, no_collect=Fal
                 print(f"[restore] 开始编卷：待编 {left} 篇 → {full} 卷"
                       + (f"，余 {rem} 篇不足一卷、留着等下次" if rem else "")
                       + "；要逐卷编译（可能跑一阵，中断了再跑一次 sync 会接着编）")
-            collect_pending(target, notes)
-            new = sorted(p.name for p in target.glob("合集-*-卷*.pdf") if p.name not in before)
+            collect_pending(target, notes, tag="restore")
+            new = sorted({p.name for base in vol_dirs
+                          for p in base.glob("合集-*-卷*.pdf")} - before)
             if new:
                 print(f"[restore] 编出 {len(new)} 卷：" + "、".join(new[:6])
                       + ("…" if len(new) > 6 else ""))
@@ -1639,7 +1709,7 @@ def main():
     p_pack.add_argument("--all", action="store_true",
                         help="整个项目都打（含编译产物与临时文件）")
     p_pack.add_argument("--no-assets", action="store_true",
-                        help="不打 assets/（素材另拷时用；目标机器上图片会缺）")
+                        help="不打 images/（素材另拷时用；目标机器上图片会缺）")
     p_restore = sub.add_parser(
         "restore", help="解开 pack 的包：还原笔记、登记位置，然后按 20 篇一卷把导入的笔记编出来")
     p_restore.add_argument("zip", help="pack 生成的 zip")
