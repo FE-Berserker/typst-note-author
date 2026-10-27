@@ -311,11 +311,14 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 
 ## 插图：页底空白与越界
 
-图比当前页剩余版面高时，`figure` 默认整块挪到下一页，当前页底部空出一大块。
+Typst 的 `figure` 默认（`placement: auto`）**本来就浮动**：图放不进当前页剩余版面
+时挪到下一页顶部，正文接着往下排把空白补满——实测同一页默认只空 0.5cm，换成
+`placement: none` 会空出 17cm。所以页底大片空白通常是浮动被关掉了：要么写了
+`placement: none`，要么把 figure 包进了 `#box(...)` / `#columns(...)`（实测
+`#box(figure(...))` 空出 17.7cm，浮动静默失效）。
 
-模板默认开浮动（`note.typ` 里 `note-setup` 内的 `let float-images = true`）：
-图浮到页面顶部，正文接着往下排把空白补满（实测一页少空 10.9cm）。代价是图可能
-出现在引用它的段落之前；要严格保序就改成 `false`。单独编译一个 `.typ` 时要先
+`note.typ` 里 `note-setup` 内的 `let float-images = true` 只是关掉浮动的口子
+（改 `false` 等于 `none`：图回原位、页底出现空白带）。单独编译一个 `.typ` 时要先
 `#show: note-setup`，否则版式和这个开关都不生效。
 
 定尺寸别只写 `width` 或只写 `height`：只写 `width` 的竖图会按比例推高、掉到页面外

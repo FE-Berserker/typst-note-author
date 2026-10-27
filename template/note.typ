@@ -330,15 +330,16 @@
   // 只对表格放开：插图必须整张挪走，绝不能把图切成两半。
   show figure.where(kind: table): set block(breakable: true)
 
-  // ---- 插图浮动：把页底空白补满 ----
-  // 图比剩余版面高时，figure 默认整块挪到下一页、当前页底部空出一大块。
-  // 打开后插图浮到页面顶部，正文接着往下排把空白补满（实测页底空隙 8cm → 0.3cm）。
-  // 代价：图可能出现在引用它的段落之前。要严格按原位排就改成 false。
+  // ---- 插图浮动：Typst 本来就浮，这个开关只用来关掉 ----
+  // figure(placement: auto) 默认浮动：图放不进剩余版面时挪到下一页顶部，正文接着
+  // 往下排。实测同一页默认排法页底只空 0.5cm，换成 none 会空出 17cm。
+  // 设成 false 即换成 none，图严格留在原位，放不下整块挪到下一页、页底出现空白带。
   // 只对套了 note-setup 的文档生效（collection.typ / single.typ 都套了）；
   // 单独编译一个 .typ 时别忘了 #show: note-setup，否则版式与这个开关都不生效。
+  // 另一个坑：#box(...)、#columns(...) 会把 figure 关进盒子，浮动静默失效。
   let float-images = true
   show figure.where(kind: image): set figure(
-    placement: if float-images { top } else { auto },
+    placement: if float-images { auto } else { none },
   )
   // 图注文字比正文小一号，与旁注同级
   show figure.caption: set text(size: 9pt, fill: note-colors.ink.lighten(20%))
