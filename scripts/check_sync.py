@@ -23,6 +23,10 @@
      不伪粗，标题里的西文会落到 Arial Bold 上，竖笔画比汉字粗约 42%，
      一行标题出现两种粗细（书端 b53dbba 修过，笔记端漏了）；
    - 等宽链必须逐字一致（书 `show raw` vs 本端 `note-font-mono`）。
+6. 插图浮动开关——两端都写成 `placement: if float-images { auto } else { none }`：
+   默认必须是 `auto`（Typst 本来就浮动，页底才不会留白），关掉才是 `none`。
+   写成 `{ top } else { auto }` 是最坑的一种错——看着像开了开关，其实两边都浮，
+   关也关不掉，文档与行为能长期不符。
    某一侧解析不到对应规则时跳过该项并说明，不判失败（规则写法会演进）。
 
 任一漂移即以非零码退出并打印差异。改任一端 colors.typ / figstyle.typ /
@@ -310,11 +314,36 @@ def check_fonts():
     return True
 
 
+def check_floats():
+    """比对两端插图浮动开关（见模块 docstring 第 6 条）。"""
+    want = "placement: if float-images { auto } else { none }"
+    bad = []
+    for label, path in (
+        ("note.typ", NOTE_ROOT / "template" / "note.typ"),
+        ("book main.typ", BOOK_ROOT / "template" / "main.typ"),
+    ):
+        try:
+            src = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        except OSError as exc:
+            bad.append(f"{label}: 读不到（{exc}）")
+            continue
+        if want not in src:
+            bad.append(f"{label}: 浮开关不是 `{want}`（默认必须浮动，关掉才用 none）")
+    if bad:
+        print("✗ 插图浮动开关漂移：")
+        for b in bad:
+            print(f"  {b}")
+        return False
+    print("✓ 插图浮动开关一致（默认 auto 浮到页顶，关掉才是 none）")
+    return True
+
+
 def main():
     results = [
         check_colors(),
         check_figstyle(),
         check_fonts(),
+        check_floats(),
         check_icons(),
         check_code_theme(),
     ]

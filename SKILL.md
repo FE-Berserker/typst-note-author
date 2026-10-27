@@ -279,7 +279,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 | 文件 | 职责 |
 | --- | --- |
 | `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动编卷检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，一卷 20 篇、只收未收录的、自动维护 include）、打包迁移（`pack` / `restore`，整项目一个 zip，含已收录清单） |
-| `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的一致性：色值（18 键）、图形样式、**字体链**（标题首字体与等宽链，含「标题链里不许有 Arial」这条硬规则）、图标名、代码高亮主题；改 `colors.typ` / `figstyle.typ` / `note.typ` 的字体或 `boxes.typ` 后跑 |
+| `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的一致性：色值（18 键）、图形样式、**字体链**（标题首字体与等宽链，含「标题链里不许有 Arial」这条硬规则）、**插图浮动开关**（两端都必须是 `auto`/`none` 那对；写成 `top`/`auto` 等于两边都浮、想关也关不掉）、图标名、代码高亮主题；改 `colors.typ` / `figstyle.typ` / `note.typ` 的字体或 `boxes.typ` 后跑 |
 
 ## 四条必须记住的约定
 
@@ -319,7 +319,8 @@ Typst 的 `figure` 默认（`placement: auto`）**本来就浮动**：图放不�
 
 `note.typ` 里 `note-setup` 内的 `let float-images = true` 只是关掉浮动的口子
 （改 `false` 等于 `none`：图回原位、页底出现空白带）。单独编译一个 `.typ` 时要先
-`#show: note-setup`，否则版式和这个开关都不生效。
+`#show: note-setup`，否则版式和这个开关都不生效。真遇到页底留白，按
+`references/pitfalls.md` 的「插图」三条排查（placement / 容器 / 图本身超高）。
 
 定尺寸别只写 `width` 或只写 `height`：只写 `width` 的竖图会按比例推高、掉到页面外
 （PDF 里还在、纸上没有）；只写 `height` 的横图会越过右边距（笔记版心只有 14cm，
