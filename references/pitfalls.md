@@ -187,8 +187,9 @@ Typst 的 `figure` 默认（`placement: auto`）**本来就浮动**：图放不�
 `placement: none` 会空出 17cm。所以页底出现空白带，按这个顺序查（9 成是前两条）：
 
 1. 图有没有写 `placement: none`——临时钉死原位的写法，写完忘了删就是它；
-2. figure 有没有被 `#box(...)`、`#columns(...)` 包住——容器会把图关进盒子里，浮动静默
-   失效（实测 `#box(figure(...))` 让同一页空出 17.7cm）；
+2. figure 有没有被容器包住——`#box(...)`、`#block(...)`、`#columns(...)`，以及
+   `boxes.typ` 里的提示框（`keypoint-box` 之类），都会把图关进盒子里，浮动静默失效
+   （实测 `#box(figure(...))` 让同一页空出 17.7cm）；
 3. 图本身比正文高度（A4 约 24.9cm）还高——浮不浮动都放不进一页，该缩图或改整页插图。
 
 `note.typ` 的 `note-setup` 里 `let float-images = true` 只用来**关掉**浮动（改 `false`
