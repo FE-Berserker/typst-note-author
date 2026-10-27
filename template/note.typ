@@ -469,14 +469,22 @@
       },
     )
 
-    // 来源：笔记多半整理自别处，出处和笔记本身一样重要
+    // 来源：笔记多半整理自别处，出处和笔记本身一样重要。
+    // 长 URL 没有断行点会把版心顶穿（斜杠/下划线/连字符后插零宽空格再断行），
+    // 只改显示文本，链接目标保持原样
     #if source != none {
       v(0.4em)
+      let src-disp = if type(source) == str {
+        source
+          .replace("/", "/\u{200b}")
+          .replace("_", "_\u{200b}")
+          .replace("-", "-\u{200b}")
+      } else { source }
       text(font: note-font-head, size: 0.8em, fill: note-colors.muted)[
         来源　#underline(
           offset: 0.16em,
           stroke: 0.5pt + note-colors.muted.lighten(30%),
-          link(source)[#source],
+          link(source)[#src-disp],
         )
       ]
     }
