@@ -329,6 +329,17 @@
   // 超出的行画在页面之外——打印与屏显都看不见，页数却不变，属于静默丢内容。
   // 只对表格放开：插图必须整张挪走，绝不能把图切成两半。
   show figure.where(kind: table): set block(breakable: true)
+
+  // ---- 插图浮动：把页底空白补满 ----
+  // 图比剩余版面高时，figure 默认整块挪到下一页、当前页底部空出一大块。
+  // 打开后插图浮到页面顶部，正文接着往下排把空白补满（实测页底空隙 8cm → 0.3cm）。
+  // 代价：图可能出现在引用它的段落之前。要严格按原位排就改成 false。
+  // 只对套了 note-setup 的文档生效（collection.typ / single.typ 都套了）；
+  // 单独编译一个 .typ 时别忘了 #show: note-setup，否则版式与这个开关都不生效。
+  let float-images = true
+  show figure.where(kind: image): set figure(
+    placement: if float-images { top } else { auto },
+  )
   // 图注文字比正文小一号，与旁注同级
   show figure.caption: set text(size: 9pt, fill: note-colors.ink.lighten(20%))
 
@@ -383,6 +394,27 @@
     ),
   )
 }
+
+// ============================================================
+// 插图尺寸助手
+// ------------------------------------------------------------
+// 给插图定尺寸时两种写法各有一个坑：只写 width 的竖图会被按比例推高，超过
+// 版心就落到页面外（PDF 里还在、纸上没有）；只写 height 的横图会被按比例
+// 推宽，越过右边距（笔记的版心只有 14cm，更容易撞上）。
+//
+// auto-image 先量图的自然宽高比，再二选一：横图撑满正文栏，竖图收到高度上限，
+// 两种越界都不会发生，也不必为了留位置凭空空出一块。
+#let auto-image(path, max-height: 0.88) = layout(size => {
+  // 路径按本文件（项目根）解析，不是按调用它的笔记文件——「图在 images/」时
+  // 写 images/photo.png 即可，写成 ../images/photo.png 会 escape project root。
+  let natural = measure(image(path))
+  let height-at-full-width = size.width * (natural.height / natural.width)
+  if height-at-full-width <= size.height * max-height {
+    image(path, width: 100%)
+  } else {
+    image(path, height: size.height * max-height)
+  }
+})
 
 // ============================================================
 // 笔记头

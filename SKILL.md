@@ -309,6 +309,27 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 4. `@sec:…` 这类交叉引用照旧能用，但默认印出的是**标题文字**而不是编号
    （笔记的节标题默认不编号），见下节。
 
+## 插图：页底空白与越界
+
+图比当前页剩余版面高时，`figure` 默认整块挪到下一页，当前页底部空出一大块。
+
+模板默认开浮动（`note.typ` 里 `note-setup` 内的 `let float-images = true`）：
+图浮到页面顶部，正文接着往下排把空白补满（实测一页少空 10.9cm）。代价是图可能
+出现在引用它的段落之前；要严格保序就改成 `false`。单独编译一个 `.typ` 时要先
+`#show: note-setup`，否则版式和这个开关都不生效。
+
+定尺寸别只写 `width` 或只写 `height`：只写 `width` 的竖图会按比例推高、掉到页面外
+（PDF 里还在、纸上没有）；只写 `height` 的横图会越过右边距（笔记版心只有 14cm，
+比书更容易撞）。用 `note.typ` 里的 `auto-image`：
+
+```typst
+#figure(auto-image("images/photo.png"), caption: [竖图按高度收，横图撑满正文栏])
+```
+
+它按图量出的自然宽高比二选一，高度上限默认是版心高度的 88%。路径按项目根
+（`note.typ` 所在目录）解析——「章在 `notes/`、图在 `images/`」时写
+`images/photo.png`，写成 `../images/photo.png` 会报 `would escape the project root`。
+
 ## 深入阅读（按需）
 
 - 改样式模块、动版面结构之前：读 `references/design.md`（模块接线与设计意图）；
