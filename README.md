@@ -56,6 +56,13 @@ typst-note-author/
 <项目>/.agents/skills/typst-note-author/   # 仅当前项目
 ```
 
+在 DeepSeek Harness 里，`~/.dsh/skills/` 也是个人技能目录，而且优先级更高
+（`user-dsh` 400 > `user-agents` 500）：两处各放一份时只有 `~/.dsh/` 那份生效，
+另一份静默失效。装一次、只装一处即可。
+
+本技能与 `typst-book-author` 请装在**同一个技能根**下——`check_sync.py` 按
+"兄弟目录"找对方，分到两个根里就跑不起来。
+
 ## 使用
 
 对支持 Agent Skills 的 AI 编程助手说「帮我把这些笔记排一下」「用 Typst 写一篇
