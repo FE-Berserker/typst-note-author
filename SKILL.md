@@ -130,6 +130,20 @@ python <技能目录>/scripts/notes_db.py --root <用户项目> doctor
 标签要写在 `#wide[…]` **里面**、紧跟 figure——写在外面会挂到那个块上，
 `@fig:x` 就指不到图了。
 
+会跨页的长表用 `#long-table`：bare 的 `#figure(table(…))` 里 figure 默认不可断，
+一页放不下时整块被推到下一页，超出行被画在页面之外（打印与屏显都看不见，
+页数也不变），而裸 `#table` 又没有编号题注。`long-table` 把「可断 + 表头每段
+重复 + 题注」包成一次调用：
+
+```typst
+#long-table(
+  columns: (auto, 1fr, 1fr),
+  head: ([序号], [名称], [说明]),
+  caption: [题注，照样编号、可被 @ 引用],
+  ..rows.flatten(),
+)
+```
+
 ### 3. 编译
 
 ```bash
@@ -250,7 +264,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 
 | 文件 | 职责 |
 | --- | --- |
-| `note.typ` | 核心：版式参数、字体、行内样式、笔记头 `note-header`、旁注 `pnote` / `mnote`、通栏 `wide` |
+| `note.typ` | 核心：版式参数、字体、行内样式、笔记头 `note-header`、旁注 `pnote` / `mnote`、通栏 `wide`、跨页长表 `long-table` |
 | `colors.typ` | 全部配色唯一来源：`note-colors-base` 是全局色，`note-themes` 是每篇笔记的主题色板；末尾两个开关（打印灰阶） |
 | `boxes.typ` | 提示框 / 编号环境，Heroicons 图标 |
 | `figstyle.typ` | CeTZ 示意图、Fletcher 流程图、Lilaq 数据图的统一样式 |

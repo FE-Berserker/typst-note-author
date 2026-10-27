@@ -325,6 +325,10 @@
   // （Typst 0.12 起），仍显式写死——不依赖版本默认，也不给外部包留改默认的空间；
   // 图题保持 Typst 默认的 bottom，不走这条规则。
   show figure.where(kind: table): set figure.caption(position: top)
+  // 表格允许跨页断开。figure 默认整体不可断：长表一页放不下时会被整块推到下一页，
+  // 超出的行画在页面之外——打印与屏显都看不见，页数却不变，属于静默丢内容。
+  // 只对表格放开：插图必须整张挪走，绝不能把图切成两半。
+  show figure.where(kind: table): set block(breakable: true)
   // 图注文字比正文小一号，与旁注同级
   show figure.caption: set text(size: 9pt, fill: note-colors.ink.lighten(20%))
 
@@ -344,6 +348,40 @@
   }
 
   body
+}
+
+// ============================================================
+// 跨页长表
+// ------------------------------------------------------------
+// 长表包进 figure 时最省事的写法是 #table(...)，但那样就没有「表 1　题注」。
+// 用 #figure(table(...), caption: ...) 又踩另一个坑：figure 默认不可断，一页
+// 放不下时整块被推到下一页，超出行被画在页面之外——PDF 里文本还在，打印和
+// 屏显都看不见，页数也不变（实测 60 行的表只印出前 20 行，静默丢 40 行）。
+//
+// 要跨页就得两件事一起做：figure 可断（note-setup 里已全局给表格放开）+
+// 表头随每段续画（table.header）。long-table 把这两件事包成一次调用。
+//
+// 关于「（续表）」标记：不作自动支持。判断「这一段是不是第一段」只能靠记录
+// 表格起始页再与当页比较，而起始页随分页变化——实测五轮不收敛
+// （state ... did not converge）。要标就在表头最后一格手写，但它会同时出现在第一段。
+#let long-table(
+  columns: none,
+  head: (),
+  caption: none,
+  ..cells,
+) = {
+  if columns == none { panic("long-table: 必须给 columns") }
+  let head-block = if head.len() > 0 { (table.header(..head),) } else { () }
+  show figure.where(kind: table): set block(breakable: true)
+  figure(
+    kind: table,
+    caption: caption,
+    table(
+      columns: columns,
+      ..head-block,
+      ..cells,
+    ),
+  )
 }
 
 // ============================================================

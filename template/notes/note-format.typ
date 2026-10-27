@@ -85,6 +85,16 @@
   caption: [模板提供的版式元素一览],
 ) <tab:note-elements>
 
+会跨页的长表用 `#long-table`：它让表格可断、并在每一段续表的顶部重画表头。直接写 `#figure(table(…))` 的话，figure 默认不可断，放不下就整块推到下一页，超出的行画在页面之外——看 PDF 时只是觉得「表变短了」，行是静默丢的：
+
+#long-table(
+  columns: (auto, 1fr),
+  head: ([场合], [写法]),
+  caption: [长表用 long-table：断页时表头会跟着重画],
+  [十几行的表], [`#long-table(columns: …, head: …, ..rows)`],
+  [简短的表], [`#figure(table(…), caption: …)` 也够用],
+)
+
 代码块里的中文必须显式补中文字体回退，否则 Typst 会在系统字体里乱挑（实测会落到隶书）。模板已经处理好了：
 
 ```typst
