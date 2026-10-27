@@ -1,0 +1,41 @@
+name: check
+
+# 笔记模板与书籍样板共享色值 / 图形样式 / 字体链 / 图标名 / 代码高亮主题，
+# 这些资产靠 check_sync.py 机检。CI 里同时拉两个仓库，才跑得起来。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: typst-note-author
+
+      - uses: actions/checkout@v4
+        with:
+          repository: FE-Berserker/typst-book-author
+          path: typst-book-author
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 两技能资产一致
+        run: python typst-note-author/scripts/check_sync.py
+
+      - name: 安装 Typst 0.15.1
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/typst.tar.xz" \
+            https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz
+          tar -xf "$RUNNER_TEMP/typst.tar.xz" -C "$RUNNER_TEMP"
+          sudo install -m 0755 "$RUNNER_TEMP/typst-x86_64-unknown-linux-musl/typst" /usr/local/bin/typst
+          typst --version
+
+      - name: 笔记能编译
+        run: typst compile typst-note-author/template/collection.typ "$RUNNER_TEMP/notes.pdf"

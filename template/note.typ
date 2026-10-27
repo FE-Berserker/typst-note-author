@@ -71,7 +71,10 @@
 // 链尾放非 Windows 的兜底（Noto Serif SC / Noto Sans SC）。
 // 注意不要放只装了单一粗字重的字体族，否则正文整体变特粗。
 #let note-font-body = ("New Computer Modern", "Noto Serif SC", "SimSun")
-#let note-font-head = ("Arial", "SimHei", "Noto Sans SC")
+// 标题黑体打头，西文也走 SimHei 自带的拉丁字形——不要在前面加 Arial：
+// SimHei 没有粗体字形，Typst 不伪粗；标题里的西文会落到 Arial Bold 上，
+// 竖笔画比汉字粗约 42%，一行标题里出现两种粗细（书模板 b53dbba 同款教训）。
+#let note-font-head = ("SimHei", "Noto Sans SC")
 #let note-font-kai = ("New Computer Modern", "KaiTi", "STKaiti", "Noto Serif SC")
 #let note-font-math = ("New Computer Modern Math", "Noto Serif SC")
 #let note-font-mono = ("DejaVu Sans Mono", "Noto Serif SC")

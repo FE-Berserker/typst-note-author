@@ -265,7 +265,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 | 文件 | 职责 |
 | --- | --- |
 | `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动编卷检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，一卷 20 篇、只收未收录的、自动维护 include）、打包迁移（`pack` / `restore`，整项目一个 zip，含已收录清单） |
-| `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的色值、图形样式同步；改 `colors.typ` / `figstyle.typ` 后跑 |
+| `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的一致性：色值（18 键）、图形样式、**字体链**（标题首字体与等宽链，含「标题链里不许有 Arial」这条硬规则）、图标名、代码高亮主题；改 `colors.typ` / `figstyle.typ` / `note.typ` 的字体或 `boxes.typ` 后跑 |
 
 ## 四条必须记住的约定
 

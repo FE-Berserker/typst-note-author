@@ -17,6 +17,13 @@
    本地没有 heroic 包缓存时（首次编译前）跳过这项；
 4. 代码高亮主题——两端 template/code-theme.tmTheme 是同一份文件，
    逐字节相同。
+5. 字体链——两端字体是手抄的，抄漏一处就是两种粗细：
+   - 标题链的首个字体必须一致（书 main.typ 的 `show heading` vs 本端
+     `note-font-head`），且都不得含 Arial——SimHei 没有粗体字形、Typst
+     不伪粗，标题里的西文会落到 Arial Bold 上，竖笔画比汉字粗约 42%，
+     一行标题出现两种粗细（书端 b53dbba 修过，笔记端漏了）；
+   - 等宽链必须逐字一致（书 `show raw` vs 本端 `note-font-mono`）。
+   某一侧解析不到对应规则时跳过该项并说明，不判失败（规则写法会演进）。
 
 任一漂移即以非零码退出并打印差异。改任一端 colors.typ / figstyle.typ /
 boxes.typ / code-theme.tmTheme 后跑：
@@ -246,9 +253,72 @@ def check_code_theme():
     return False
 
 
+NAME = re.compile(r'"([^"]+)"')
+
+
+def named_chain(path, name):
+    """取 `#let <name> = ("A", "B")` 里的字体名列表；解析不到返回 None。"""
+    m = re.search(r"#let\s+" + re.escape(name) + r"\s*=\s*\(", path.read_text(encoding="utf-8"))
+    if not m:
+        return None
+    return NAME.findall(read_balanced(path.read_text(encoding="utf-8"), m.end() - 1))
+
+
+def inline_chain(path, rule):
+    """取 `#show xxx: set text(font: ("A", "B"))` 里的字体名列表；解析不到返回 None。"""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(rule + r"\s*\(", text)
+    if not m:
+        return None
+    return NAME.findall(read_balanced(text, m.end() - 1))
+
+
+def check_fonts():
+    """比对两端字体链（见模块 docstring 第 5 条）。"""
+    note_typ = NOTE_ROOT / "template" / "note.typ"
+    book_main = BOOK_ROOT / "template" / "main.typ"
+    nb_head = named_chain(note_typ, "note-font-head")
+    nb_mono = named_chain(note_typ, "note-font-mono")
+    bk_head = inline_chain(book_main, r"#show heading:\s*set text\(\s*font:")
+    bk_mono = inline_chain(book_main, r"#show raw:\s*set text\(\s*font:")
+
+    if not (nb_head and nb_mono and bk_head and bk_mono):
+        miss = [
+            label for label, v in (
+                ("note-font-head", nb_head), ("note-font-mono", nb_mono),
+                ("book show heading", bk_head), ("book show raw", bk_mono),
+            ) if not v
+        ]
+        print(f"- 字体链校验跳过：解析不到 {', '.join(miss)}（规则写法可能变了）")
+        return True
+
+    bad = []
+    if nb_head[0] != bk_head[0]:
+        bad.append(f"标题首字体：note {nb_head[0]} ≠ book {bk_head[0]}")
+    for side, chain in (("note", nb_head), ("book", bk_head)):
+        if "Arial" in chain:
+            bad.append(f"{side} 标题链含 Arial（SimHei 无粗体 → 西文 Arial Bold 比汉字粗）")
+    if nb_mono != bk_mono:
+        bad.append(f"等宽链：note {nb_mono} ≠ book {bk_mono}")
+
+    if bad:
+        print("✗ 字体链漂移：")
+        for b in bad:
+            print(f"  {b}")
+        return False
+    print(f"✓ 字体链一致（标题首字体 {nb_head[0]}，等宽链 {len(nb_mono)} 项）")
+    return True
+
+
 def main():
-    ok = check_colors() and check_figstyle() and check_icons() and check_code_theme()
-    if not ok:
+    results = [
+        check_colors(),
+        check_figstyle(),
+        check_fonts(),
+        check_icons(),
+        check_code_theme(),
+    ]
+    if not all(results):
         sys.exit(1)
     print("同步校验通过。")
 

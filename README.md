@@ -33,7 +33,7 @@ typst-note-author/
 │   ├── customization.md   常见定制任务（换色/调栏宽/换开本/扩框型…）
 │   └── pitfalls.md        踩坑记录（旁注错位/缩进丢失/表格线异常…）
 ├── scripts/               notes_db.py（关键词/结构入库 SQLite + 生成知识图谱/思维导图）、
-│                          check_sync.py（与 typst-book-author 的色值/图形样式同步校验）
+│                          check_sync.py（与 typst-book-author 的色值/图形样式/字体链同步校验）
 └── template/              完整可编译的笔记样板
     ├── note.typ           核心：版式参数、字体、行内样式、笔记头、旁注
     ├── colors.typ         全部配色唯一来源
