@@ -1004,9 +1004,9 @@ CRITICAL_RULES = [
     ),
     (
         "note.typ",
-        "跨页表头重复（三线表底线用表格内 hline，不外包 block）",
+        "跨页表头重复（表格底线用表格内 hline，不外包 block）",
         r"table\.hline\(position: top",
-        "三线表一节换成「重建表格 + 追加 table.hline(position: top)」方案，见技能模板",
+        "表格一节换成「重建表格 + 追加 table.hline(position: top)」方案，见技能模板",
     ),
     (
         "note.typ",

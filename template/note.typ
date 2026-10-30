@@ -9,7 +9,7 @@
 //
 // 每篇笔记有一种主题色（色板在 colors.typ 的 note-themes）：note-header 不指定
 // theme 时自动挑还没用过的第一种。它决定笔记头短标、节标题竖标、摘要竖线、
-// 旁注竖线四处，其余颜色（提示框、数据系列、状态点）与主题色无关，保持语义固定。
+// 旁注竖线与表格浅底五处，其余颜色（提示框、数据系列、状态点）与主题色无关，保持语义固定。
 //
 // 设计取向（与书籍样板的差别）：
 //   · 笔记是屏幕阅读与单面打印为主，页面默认左右不对称但*不装订*——
@@ -29,7 +29,7 @@
 
 // 模板版本：notes_db.py doctor 用它判断项目里的这份拷贝是否落后于技能模板。
 // 旧拷贝可能缺已修复的规则（如「表题在表格上方」），开工前先跑 doctor 体检。
-#let template-version = "2026-09-25"
+#let template-version = "2026-10-30"
 
 // ---- 版式参数 ----
 #let note-paper = "a4"
@@ -259,37 +259,40 @@
   // 同一份笔记里的几张表会各用一套对齐规矩。
   set table(align: (left, left, left))
   // 用单元格内边距留气口，不用 column-gutter：Typst 会把 stroke 画进 gutter，
-  // 一加就多出竖线，三线表就破了。首列不加左内边距，表左缘仍与正文对齐。
-  show table.cell: set table.cell(inset: (x: 0.5em, y: 0.15em))
-  show table.cell.where(x: 0): set table.cell(inset: (left: 0pt, right: 0.5em, y: 0.15em))
+  // 一加就多出竖线。首列不加左内边距，表左缘仍与正文对齐。
+  show table.cell: set table.cell(inset: (x: 0.5em, y: 0.25em))
+  show table.cell.where(x: 0): set table.cell(inset: (left: 0pt, right: 0.5em, y: 0.25em))
   // 窄格里两端对齐会把最后一行撑开，逐格关掉。
   show table.cell: set par(justify: false)
+  show table.cell.where(y: 0): set text(font: note-font-head, weight: "bold")
 
-  // ---- 三线表 ----
-  // 默认表格是一张满格的网（每条行、列都画线），与「安静」的整体调子相反。
-  // 这里改成中文技术文档通行的三线表：顶线（表头行上边）、表头下条线
-  // （表头行下边），其余一律不画。
-  // stroke 传函数时，x/y 是单元格坐标，且只会收到整数——表头行是 y == 0，
-  // 而「最后一行」没有对应的标记（"first"/"last" 实测收不到），
-  // 所以底线只能靠外面包一层 block 补上，见下面那条 show 规则。
-  // 不画线的一侧必须写 none，不能写 0pt：0pt 是「已指定的零宽线」，在与
-  // 相邻单元格的共享边裁决中会压过对侧的真线、自身又画不出来——表头下条线
-  // 曾被数据行的 top: 0pt 这样顶掉（表头下 17 行纯白实测）；none 是「未指定」，
-  // 会把边让给对侧，表头的 0.6pt 底才画得出来。
+  // ---- 轻快表格：主题浅底表头 + 极淡隔行底色 ----
+  // 不再用三条深灰线把表格压成学术论文的调子。表头与隔行底色都跟当前
+  // 这一篇的主题色走；不画竖线，也不给每个数据行加横线，行际靠底色区分。
+  // 只保留表头下线和表格底线，让表仍有清楚的边界。
+  // 不画线的一侧必须写 none，不能写 0pt：0pt 是「已指定的零宽线」，会在
+  // 相邻单元格的共享边裁决中压过对侧真线，自身又画不出来。
   set table(stroke: (x, y) => (
-    top: if y == 0 { 0.9pt + note-colors.ink } else { none },
-    bottom: if y == 0 { 0.6pt + note-colors.ink } else { none },
+    top: none,
+    bottom: if y == 0 { 0.7pt + note-colors.ink.lighten(25%) } else { none },
     left: none,
     right: none,
   ))
-  // 底线：往表格末尾追加一条 hline（表格内部元素，随表宽收缩）。
-  // 不要包 block 补底线——block 会破坏跨页时的表头重复（实测续页直接从
-  // 数据行继续）；也不要用 block(width: 100%) 的底线——窄表的底线会比表长。
-  show table: it => {
-    // 守卫：末尾已挂着底线的表原样放行——show 规则对重建的同类型元素
-    // 会再次触发，没有这一条就是无限递归（maximum show rule depth exceeded）
+  // 底色在重建表格时读取当前主题色；显式给了 fill 的表仍以自己的设置为准，
+  // 想关掉默认底色可写 fill: white。fill 用 y == 0 判断表头，偶数数据行铺浅底。
+  // 底线仍在表格内部追加：不要包 block 补底线，否则会破坏跨页表头重复。
+  show table: it => context {
+    // 守卫：末尾已挂着底线的表原样放行，避免重建同类型元素造成无限递归。
     let kids = it.children
     if kids.len() > 0 and kids.last().func() == table.hline { return it }
+    let theme = note-theme-state.get()
+    let default-fill = (x, y) => if y == 0 {
+      theme.lighten(85%)
+    } else if calc.even(y) {
+      theme.lighten(94%)
+    } else {
+      none
+    }
     table(
       columns: it.columns,
       rows: it.rows,
@@ -300,9 +303,9 @@
       align: it.align,
       inset: it.inset,
       stroke: it.stroke,
-      fill: it.fill,
+      fill: if it.fill == none { default-fill } else { it.fill },
       ..kids,
-      table.hline(position: top, stroke: 0.9pt + note-colors.ink),
+      table.hline(position: top, stroke: 0.8pt + theme),
     )
   }
 

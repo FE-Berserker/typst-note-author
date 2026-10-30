@@ -1,7 +1,7 @@
 # typst-note-author
 
 一个 Agent Skills 技能：用 Typst 排中文学习笔记。笔记头（日期/标签/状态/来源）、
-右侧旁注栏、提示框与编号环境、三线表、图表公式与交叉引用开箱即用，
+右侧旁注栏、提示框与编号环境、主题色轻快表格、图表公式与交叉引用开箱即用，
 **单篇导出与汇总成册两个出口共用同一份内容**；配套脚本可把关键词与笔记结构
 存入 SQLite，一键生成交互式**知识图谱**（[vis-network](https://github.com/visjs/vis-network)
 力导向图：关键词为节点、共现为边，可拖动/缩放/点击高亮/搜索），
@@ -17,7 +17,7 @@
 | :---: | :---: |
 | ![笔记页](preview/note-page.png) | ![汇总册](preview/collection.png) |
 
-| 提示框与三线表 | 编号环境与插图 |
+| 提示框与主题色轻快表格 | 编号环境与插图 |
 | :---: | :---: |
 | ![元素](preview/elements.png) | ![编号](preview/theorem.png) |
 
@@ -25,7 +25,7 @@
 
 ```
 typst-note-author/
-├── SKILL.md               技能入口：工作流程与四条必须记住的约定
+├── SKILL.md               技能入口：工作流程与七条必须记住的约定
 ├── README.md              本文件
 ├── preview/               效果预览图
 ├── references/            按需阅读的参考文档
