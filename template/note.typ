@@ -29,7 +29,7 @@
 
 // 模板版本：notes_db.py doctor 用它判断项目里的这份拷贝是否落后于技能模板。
 // 旧拷贝可能缺已修复的规则（如「表题在表格上方」），开工前先跑 doctor 体检。
-#let template-version = "2026-10-30"
+#let template-version = "2026-11-09"
 
 // ---- 版式参数 ----
 #let note-paper = "a4"
@@ -112,6 +112,25 @@
   "待验证": note-colors.orange,
   "持续更新": note-colors.blue,
   "已定稿": note-colors.green,
+)
+
+// ---- 表格表头跨行守卫 ----
+// table.header 会被整段复制到每一页续表的顶部，所以表头里的跨行没有「下一行」
+// 可伸过去：Typst 0.15 不报错、直接把 rowspan 丢掉，后面的表头格按顺序各左移
+// 一格，单位行就落到错误的列下面（实测，见 references/pitfalls.md「表头跨行」）。
+// 跨行只在正文行里生效。守卫把错位变成编译错误——错位的表看着像「内容挤在一起」，
+// 比编译失败难查得多，也最容易在导出之后才被发现。
+#let head-rowspan-msg = (
+  "表格表头里不能跨行（rowspan 只在正文行生效）：table.header 会被复制到每页"
+    + "续表顶部，跨行无处安放，Typst 会静默丢弃它，导致这一行后面的表头格各"
+    + "左移一格、单元格落到错误的列下。单位行请并进表题，或用 table.cell(colspan: …) "
+    + "合并成一格；确实要跨行合并，就把它写成正文的第一行，不要放进 table.header。"
+)
+
+#let table-head-takes-rowspan(kids) = kids.any(kid =>
+  kid.func() == table.header and kid.children.any(c =>
+    c.func() == table.cell and c.fields().at("rowspan", default: 1) != 1
+  )
 )
 
 // ============================================================
@@ -285,6 +304,9 @@
     // 守卫：末尾已挂着底线的表原样放行，避免重建同类型元素造成无限递归。
     let kids = it.children
     if kids.len() > 0 and kids.last().func() == table.hline { return it }
+    // 表头里的跨行会被 Typst 静默丢弃（见文件上方 head-rowspan-msg），
+    // 重建出来的表会错列。原地拦下，别让它排出来。
+    if table-head-takes-rowspan(kids) { panic(head-rowspan-msg) }
     let theme = note-theme-state.get()
     let default-fill = (x, y) => if y == 0 {
       theme.lighten(85%)
@@ -379,6 +401,10 @@
 // 关于「（续表）」标记：不作自动支持。判断「这一段是不是第一段」只能靠记录
 // 表格起始页再与当页比较，而起始页随分页变化——实测五轮不收敛
 // （state ... did not converge）。要标就在表头最后一格手写，但它会同时出现在第一段。
+//
+// head 里不能有跨行（rowspan）：表头会被复制到每段顶部，跨行无处安放，Typst
+// 会静默丢弃它、后面的表头格整体左移。守卫在这里再拦一道，好让报错直接指向
+// head: 参数；表头里只用 colspan 合并是安全的。
 #let long-table(
   columns: none,
   head: (),
@@ -386,6 +412,12 @@
   ..cells,
 ) = {
   if columns == none { panic("long-table: 必须给 columns") }
+  // 表头只有一格时容易写成 head: table.cell(…)，没包数组；统一成数组再往下走，
+  // 否则会在 head.len() 上抛 "element cell has no method len"。
+  let head = if type(head) == array { head } else { (head,) }
+  if head.len() > 0 and table-head-takes-rowspan((table.header(..head),)) {
+    panic(head-rowspan-msg)
+  }
   let head-block = if head.len() > 0 { (table.header(..head),) } else { () }
   show figure.where(kind: table): set block(breakable: true)
   figure(

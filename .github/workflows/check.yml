@@ -39,3 +39,8 @@ jobs:
 
       - name: 笔记能编译
         run: typst compile typst-note-author/template/collection.typ "$RUNNER_TEMP/notes.pdf"
+
+      # Typst 0.15.1 会把 table.header 里的 rowspan 静默丢掉（后面的表头格左移一格，
+      # 单位行落到错的列下）。模板加了守卫把它变成编译错误，这一步守住那条守卫。
+      - name: 表格跨行回归
+        run: python typst-note-author/scripts/test_table_span.py
