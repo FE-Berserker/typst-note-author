@@ -193,6 +193,42 @@ caption: [JJG 177—2016 表 5 涂色层厚度上限（μm）]
    正文论断处挂一次，其余归入「证据边界」类小节或旁注；重复免责会稀释
    真正重要的边界。
 
+#### 几何图（geostyle.typ）
+
+笔记里画几何——尺规作图、定理配图、构造性推导——用 `geostyle.typ`。它解决的不是
+「画得好看」，而是**图和文指向同一个对象**：正文里那个 ◯ 就是主图里那个圆缩小重画的，
+不是打字打出来的符号。顺手要写「在 AB 上作…」这类句子时，用它对得上。
+
+```typst
+#import "../geostyle.typ": *
+
+#let fig = geo(
+  points:  ("A": (0, 0), "B": (1, 0), "C": (0.5, 0.8660254)),
+  lines:   ("AB": (a: "A", b: "B", color: "ink")),
+  circles: ("cA": (center: "A", through: "B", color: "built")),
+  angles:  ("ACB": (from: "A", at: "C", to: "B", color: "aux", style: "sector")),
+)
+#wide[#figure(geo-figure(fig, length: 15mm), caption: […]) <fig:t3>]
+```
+
+四条不变量（缺一条就走形）：
+
+1. **命名图元**：先 `geo(...)` 登记，再按名字绘制。
+2. **一物一色**：颜色标的是**哪个对象**，不是**什么角色**。配色固定 Byrne 四色
+   （`given` `#d94c1a` / `built` `#265999` / `aux` `#f2b31a` / `ink` `#111111`），
+   **不跟 note 主题色走**——笔记主题换了，几何图的语义色不能跟着换。
+3. **行内重绘**：`tok-line` / `tok-mini` / `tok-angle` / `tok-point` / `tok-right`，
+   直接嵌进句子。`tok-mini(fig, ("cA", "AB"))` 才是带半径的圆；只传 `("cA",)` 是空环。
+4. **图式等式**：推导写成一行一步的记号等式，`#align(center, par[…])` 里排。
+
+线宽三档（`gw.reg` 2pt / `thin` 1pt / `hair` 0.5pt），主图与记号同宽；记号显粗是
+缩放的自然结果，想细就缩小 `length`。
+
+`labels: true` / `marks:` 是可选叠加（斜体标签 + 点记号 ∧），默认关闭。
+
+完整示例见 `tests/geostyle/demo.typ`；编译带 `--root <技能目录>`。
+
+
 ### 3. 编译
 
 ```bash
@@ -317,6 +353,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 | `colors.typ` | 全部配色唯一来源：`note-colors-base` 是全局色，`note-themes` 是每篇笔记的主题色板；末尾两个开关（打印灰阶） |
 | `boxes.typ` | 提示框 / 编号环境，Heroicons 图标 |
 | `figstyle.typ` | CeTZ 示意图、Fletcher 流程图、Lilaq 数据图的统一样式 |
+| `geostyle.typ` | 几何绘图（Byrne 风格）：命名图元注册表、一物一色、行内重绘记号、图式等式；配色固定不跟主题 |
 | `code-theme.tmTheme` | 代码块语法高亮主题（syntect）：Typst 自带高亮，这份把配色换成调色板同源；`note.typ` 的 `set raw(theme:)` 引用 |
 | `single.typ` | 单篇出口：一篇笔记一个 PDF |
 | `collection.typ` | 汇总出口：首页标题 + 自动总目录，之后每篇各起一页 |
@@ -328,7 +365,7 @@ Typst 0.13+ 与模板字体，技能本身从 github.com/FE-Berserker/typst-note
 | 文件 | 职责 |
 | --- | --- |
 | `scripts/notes_db.py` | 笔记位置登记（`root`，跨会话记住）、模板体检（`doctor`，旧拷贝查缺）、关键词/结构入库 SQLite（`sync`，兼自动编卷检测）、知识图谱（`graph`）、思维导图（`mindmap`）、合集编译（`collect`，一卷 20 篇、只收未收录的、自动维护 include）、打包迁移（`pack` / `restore`，整项目一个 zip，含已收录清单） |
-| `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的一致性：色值（18 键）、图形样式、**字体链**（标题首字体与等宽链，含「标题链里不许有 Arial」这条硬规则）、**插图浮动开关**（两端都必须是 `auto`/`none` 那对；写成 `top`/`auto` 等于两边都浮、想关也关不掉）、图标名、代码高亮主题；改 `colors.typ` / `figstyle.typ` / `note.typ` 的字体或 `boxes.typ` 后跑 |
+| `scripts/check_sync.py` | 校验本模板与书籍样板（typst-book-author）的一致性：色值（18 键）、图形样式、**字体链**（标题首字体与等宽链，含「标题链里不许有 Arial」这条硬规则）、**插图浮动开关**（两端都必须是 `auto`/`none` 那对；写成 `top`/`auto` 等于两边都浮、想关也关不掉）、图标名、代码高亮主题；改 `colors.typ` / `figstyle.typ` / `geostyle.typ` / `note.typ` 的字体或 `boxes.typ` 后跑 |
 
 ## 七条必须记住的约定
 

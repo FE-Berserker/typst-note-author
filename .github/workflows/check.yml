@@ -40,6 +40,11 @@ jobs:
       - name: 笔记能编译
         run: typst compile typst-note-author/template/collection.typ "$RUNNER_TEMP/notes.pdf"
 
+      # geostyle.typ 是纯模块，不被 import 就不参与编译；这里单独跑它的冒烟示例，
+      # 保证改复合线斜接 / 扇形角度 / 行内记号基线时 CI 立刻红。
+      - name: 几何模块冒烟
+        run: typst compile --root typst-note-author typst-note-author/tests/geostyle/demo.typ "$RUNNER_TEMP/geostyle.pdf"
+
       # Typst 0.15.1 会把 table.header 里的 rowspan 静默丢掉（后面的表头格左移一格，
       # 单位行落到错的列下）。模板加了守卫把它变成编译错误，这一步守住那条守卫。
       - name: 表格跨行回归

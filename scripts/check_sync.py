@@ -29,8 +29,12 @@
    关也关不掉，文档与行为能长期不符。
    某一侧解析不到对应规则时跳过该项并说明，不判失败（规则写法会演进）。
 
+7. 几何绘图样式——两端 template/geostyle.typ 逐字节相同。几何配色固定为 Byrne
+   四色，不读 colors.typ，所以这份文件没有任何「允许的差异」：连注释都要一致，
+   不像 figstyle.typ 还得先把配色字典名归一。
+
 任一漂移即以非零码退出并打印差异。改任一端 colors.typ / figstyle.typ /
-boxes.typ / code-theme.tmTheme 后跑：
+geostyle.typ / boxes.typ / code-theme.tmTheme 后跑：
 
   python scripts/check_sync.py
 """
@@ -54,6 +58,8 @@ NOTE_BOXES = NOTE_ROOT / "template" / "boxes.typ"
 BOOK_BOXES = BOOK_ROOT / "template" / "boxes.typ"
 NOTE_THEME = NOTE_ROOT / "template" / "code-theme.tmTheme"
 BOOK_THEME = BOOK_ROOT / "template" / "code-theme.tmTheme"
+GEO_NOTE = NOTE_ROOT / "template" / "geostyle.typ"
+GEO_BOOK = BOOK_ROOT / "template" / "geostyle.typ"
 
 ICON = re.compile(r'icon:\s*"([^"]+)"')
 ICON_KEY = re.compile(r'^\s*"([a-z0-9-]+)":', re.M)
@@ -201,6 +207,39 @@ def check_figstyle():
     return False
 
 
+def check_geostyle():
+    """比对两端 template/geostyle.typ（见模块 docstring 第 7 条）。
+
+    逐字节比，不做任何归一：几何配色固定为 Byrne 四色，这份文件两侧应当完全
+    相同。差一个空格也判漂移——因为两份必须能互换而不改变任何一张图。
+    """
+    missing = [str(p) for p in (GEO_NOTE, GEO_BOOK) if not p.exists()]
+    if missing:
+        print("✗ geostyle.typ 缺失：" + "，".join(missing))
+        return False
+    a = GEO_NOTE.read_bytes().replace(b"\r\n", b"\n")
+    b = GEO_BOOK.read_bytes().replace(b"\r\n", b"\n")
+    if a == b:
+        print(f"✓ geostyle.typ 两端逐字节一致（{len(a.splitlines())} 行）")
+        return True
+    print("✗ geostyle.typ 两端不一致（这份文件零差异，注释也要同步）：")
+    al = a.decode("utf-8").splitlines()
+    bl = b.decode("utf-8").splitlines()
+    shown = 0
+    for i in range(max(len(al), len(bl))):
+        x = al[i] if i < len(al) else "<缺失>"
+        y = bl[i] if i < len(bl) else "<缺失>"
+        if x != y:
+            print(f"  行 {i + 1}:\n    note: {x}\n    book: {y}")
+            shown += 1
+            if shown >= 10:
+                print("  ……（更多差异从略）")
+                break
+    if len(al) != len(bl):
+        print(f"  行数不同：note {len(al)} ≠ book {len(bl)}")
+    return False
+
+
 def heroic_index():
     """本地 heroic 包缓存里的有效图标名集合；找不到缓存返回 None。
 
@@ -342,6 +381,7 @@ def main():
     results = [
         check_colors(),
         check_figstyle(),
+        check_geostyle(),
         check_fonts(),
         check_floats(),
         check_icons(),

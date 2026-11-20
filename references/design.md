@@ -10,6 +10,7 @@ note.typ                     核心：版式参数 + 字体 + 行内样式 + 笔
 ├── colors.typ               全部配色唯一来源
 └── boxes.typ                提示框 / 编号环境
 figstyle.typ                 CeTZ / Fletcher / Lilaq 统一图形样式
+geostyle.typ                 几何绘图（Byrne 风格）：命名图元 + 一物一色 + 行内重绘
 single.typ                   单篇出口
 collection.typ               汇总出口
 notes/                       笔记正文（一篇一个文件）
@@ -23,11 +24,13 @@ notes/                       笔记正文（一篇一个文件）
 | `colors.typ` | 原样继承 | 配色与「书」无关 |
 | `boxes.typ` 的框体 | 继承，去掉 Bookly 依赖 | 提示框是笔记的骨干 |
 | `figstyle.typ` | 原样继承 | 图形样式与「书」无关 |
+| `geostyle.typ` | 原样继承，且**逐字节相同** | 几何配色固定为 Byrne 四色，不读主题文件 |
 | `main.typ` 的字体 / 行内样式 / 表格 / 题注规则 | 搬进 `note.typ` | 纯中文排版资产 |
 | Bookly 骨架 | 换成自写的轻骨架 | 见下 |
 
 `figstyle.typ` 与 typst-book-author 的同名文件**内容相同**（文件头有 `SYNC`
-标记，改的时候会看到）。`colors.typ` 则是**色值相同、文件不同**：`note-colors-base`
+标记，改的时候会看到）。`geostyle.typ` 更严格：两端**逐字节相同**——它的配色
+不读 `colors.typ`，所以连注释都没有理由不同，`check_sync.py` 直接整体比对。`colors.typ` 则是**色值相同、文件不同**：`note-colors-base`
 那份字典与书籍样板逐行一致，改色值要同步改两个技能，否则两套模板的配色会慢慢
 漂移；末尾的灰阶开关是笔记独有的，不用往那边搬。
 | 封面 / 版权页 / 封底 / 前置罗马页码 | 砍掉 | 单篇笔记不需要 |
